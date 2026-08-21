@@ -57,6 +57,15 @@ export type AIChatBoxProps = {
    * Click to send directly
    */
   suggestedPrompts?: string[];
+
+  /** Display name shown through the assistant avatar. */
+  assistantName?: string;
+  /** Local avatar data URL for the assistant. */
+  assistantAvatar?: string;
+  /** Display name shown through the user avatar. */
+  userName?: string;
+  /** Local avatar data URL for the user. */
+  userAvatar?: string;
 };
 
 /**
@@ -119,6 +128,10 @@ export function AIChatBox({
   height = "600px",
   emptyStateMessage = "Start a conversation with AI",
   suggestedPrompts,
+  assistantName = "AI",
+  assistantAvatar,
+  userName = "我",
+  userAvatar,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -247,8 +260,8 @@ export function AIChatBox({
                     }
                   >
                     {message.role === "assistant" && (
-                      <div className="size-8 shrink-0 mt-1 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Sparkles className="size-4 text-primary" />
+                      <div title={assistantName} className="size-8 shrink-0 mt-1 overflow-hidden rounded-full bg-primary/10 flex items-center justify-center">
+                        {assistantAvatar ? <img src={assistantAvatar} alt="" className="size-full object-cover" /> : <Sparkles className="size-4 text-primary" />}
                       </div>
                     )}
 
@@ -272,8 +285,8 @@ export function AIChatBox({
                     </div>
 
                     {message.role === "user" && (
-                      <div className="size-8 shrink-0 mt-1 rounded-full bg-secondary flex items-center justify-center">
-                        <User className="size-4 text-secondary-foreground" />
+                      <div title={userName} className="size-8 shrink-0 mt-1 overflow-hidden rounded-full bg-secondary flex items-center justify-center">
+                        {userAvatar ? <img src={userAvatar} alt="" className="size-full object-cover" /> : <User className="size-4 text-secondary-foreground" />}
                       </div>
                     )}
                   </div>
@@ -289,8 +302,8 @@ export function AIChatBox({
                       : undefined
                   }
                 >
-                  <div className="size-8 shrink-0 mt-1 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Sparkles className="size-4 text-primary" />
+                  <div title={assistantName} className="size-8 shrink-0 mt-1 overflow-hidden rounded-full bg-primary/10 flex items-center justify-center">
+                    {assistantAvatar ? <img src={assistantAvatar} alt="" className="size-full object-cover" /> : <Sparkles className="size-4 text-primary" />}
                   </div>
                   <div className="rounded-lg bg-muted px-4 py-2.5">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />

@@ -13,6 +13,7 @@ export type LocalMessage = {
 
 export type LocalConversation = {
   id: string;
+  aiProfileId: string;
   title: string;
   createdAt: number;
   updatedAt: number;
@@ -42,9 +43,9 @@ export function createId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function createConversation(): LocalConversation {
+export function createConversation(aiProfileId = "default-ai"): LocalConversation {
   const now = Date.now();
-  return { id: createId(), title: "新对话", createdAt: now, updatedAt: now, messages: [] };
+  return { id: createId(), aiProfileId, title: "新对话", createdAt: now, updatedAt: now, messages: [] };
 }
 
 export function getSettings(): LocalModelSettings {
@@ -61,7 +62,12 @@ export function getConversations(): LocalConversation[] {
   if (!Array.isArray(conversations)) return [];
   return conversations
     .filter(item => item && typeof item.id === "string" && Array.isArray(item.messages))
+    .map(item => ({ ...item, aiProfileId: item.aiProfileId || "default-ai" }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function conversationsForAI(conversations: LocalConversation[], aiProfileId: string) {
+  return conversations.filter(conversation => conversation.aiProfileId === aiProfileId);
 }
 
 export function saveConversations(conversations: LocalConversation[]) {
