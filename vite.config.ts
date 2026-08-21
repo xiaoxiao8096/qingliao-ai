@@ -153,6 +153,7 @@ function vitePluginManusDebugCollector(): Plugin {
 const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
+  base: process.env.VITE_GITHUB_PAGES === "true" ? "/qingliao-ai/" : "/",
   plugins,
   resolve: {
     alias: {
