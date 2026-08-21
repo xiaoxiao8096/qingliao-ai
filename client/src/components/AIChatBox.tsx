@@ -3,19 +3,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
-import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film } from "lucide-react";
+import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Streamdown } from "streamdown";
 import { toast } from "sonner";
 
 /**
  * Message type matching server-side LLM Message interface.
- * `attachments` 仅用户消息可能携带。
+ * `attachments` 仅用户消息可能携带。`createdAt` 用于显示发送时间。
  */
 export type Message = {
   role: "system" | "user" | "assistant";
   content: string;
   attachments?: Attachment[];
+  createdAt?: number;
 };
 
 /** 发送给上层（页面）的载荷：文本 + 附件 */
@@ -28,6 +29,8 @@ export type AIChatBoxProps = {
   messages: Message[];
   /** 用户点击发送时回调，携带文本与附件 */
   onSendMessage: (payload: SendPayload) => void;
+  /** 流式生成中点「停止」时回调（由上层 abort 请求） */
+  onStop?: () => void;
   isLoading?: boolean;
   placeholder?: string;
   className?: string;
@@ -44,6 +47,14 @@ function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatTime(ts?: number) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
 
 function AttachmentThumb({ attachment }: { attachment: Attachment }) {
@@ -67,6 +78,7 @@ function AttachmentThumb({ attachment }: { attachment: Attachment }) {
 export function AIChatBox({
   messages,
   onSendMessage,
+  onStop,
   isLoading = false,
   placeholder = "Type your message...",
   className,
@@ -87,6 +99,8 @@ export function AIChatBox({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // 用户是否“贴在底部”。向上翻看历史时置 false，新内容不再强行滚动。
   const stickToBottomRef = useRef(true);
+  // 是否显示“回到最新”悬浮按钮（用户上翻时为真）。
+  const [showJump, setShowJump] = useState(false);
 
   const displayMessages = messages.filter((msg) => msg.role !== "system");
 
@@ -106,6 +120,23 @@ export function AIChatBox({
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollContainerRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior });
+    setShowJump(false);
+  }, []);
+
+  const adjustTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, []);
+
+  const copyMessage = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("已复制到剪贴板");
+    } catch {
+      toast.error("复制失败，请手动选择文本。");
+    }
   }, []);
 
   const handleScroll = useCallback(() => {
@@ -113,6 +144,7 @@ export function AIChatBox({
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     stickToBottomRef.current = distanceFromBottom < 120;
+    setShowJump(distanceFromBottom >= 120);
   }, []);
 
   // 关键修复：新消息 / 流式输出时自动贴底。
@@ -146,6 +178,7 @@ export function AIChatBox({
     setAttachments([]);
     stickToBottomRef.current = true;
     scrollToBottom("auto");
+    adjustTextarea();
     textareaRef.current?.focus();
   };
 
@@ -172,7 +205,7 @@ export function AIChatBox({
       style={{ height }}
     >
       {/* Messages Area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="relative flex-1 overflow-hidden">
         {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">
             <div className="flex flex-1 flex-col items-center justify-center gap-6 text-muted-foreground">
@@ -232,12 +265,22 @@ export function AIChatBox({
 
                     <div
                       className={cn(
-                        "max-w-[80%] rounded-lg px-4 py-2.5",
+                        "group relative max-w-[80%] rounded-lg px-4 py-2.5",
                         message.role === "user"
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted text-foreground"
                       )}
                     >
+                      <button
+                        type="button"
+                        onClick={() => copyMessage(message.content)}
+                        className="absolute right-1 top-1 hidden rounded-md p-1 text-slate-400 hover:bg-black/10 hover:text-slate-700 group-hover:block"
+                        aria-label="复制消息"
+                        title="复制消息"
+                      >
+                        <Copy className="size-3" />
+                      </button>
+
                       {message.role === "user" && message.attachments && message.attachments.length > 0 && (
                         <div className="mb-2 flex flex-wrap gap-2">
                           {message.attachments.map((att) => (
@@ -258,6 +301,9 @@ export function AIChatBox({
                       ) : (
                         <p className="whitespace-pre-wrap text-sm">{message.content}</p>
                       )}
+                      {message.createdAt ? (
+                        <div className="mt-1 text-right text-[10px] opacity-60">{formatTime(message.createdAt)}</div>
+                      ) : null}
                     </div>
 
                     {message.role === "user" && (
@@ -288,6 +334,18 @@ export function AIChatBox({
               )}
             </div>
           </div>
+        )}
+
+        {showJump && (
+          <button
+            type="button"
+            onClick={() => { stickToBottomRef.current = true; scrollToBottom("smooth"); }}
+            className="absolute bottom-4 right-4 z-10 grid size-9 place-items-center rounded-full bg-slate-900 text-white shadow-lg hover:bg-slate-700"
+            aria-label="回到最新消息"
+            title="回到最新消息"
+          >
+            <ArrowDown className="size-4" />
+          </button>
         )}
       </div>
 
@@ -349,24 +407,33 @@ export function AIChatBox({
           <Textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             className="flex-1 max-h-32 resize-none min-h-9"
             rows={1}
           />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={!canSend}
-            className="shrink-0 h-[38px] w-[38px]"
-          >
-            {isLoading ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
+          {isLoading ? (
+            <Button
+              type="button"
+              size="icon"
+              onClick={() => onStop?.()}
+              className="shrink-0 h-[38px] w-[38px] bg-rose-500 text-white hover:bg-rose-600"
+              aria-label="停止生成"
+              title="停止生成"
+            >
+              <Square className="size-4 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!canSend}
+              className="shrink-0 h-[38px] w-[38px]"
+            >
               <Send className="size-4" />
-            )}
-          </Button>
+            </Button>
+          )}
         </div>
       </form>
     </div>
