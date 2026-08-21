@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { Loader2, Send, User, Sparkles } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -236,7 +235,7 @@ export function AIChatBox({
             </div>
           </div>
         ) : (
-          <ScrollArea className="h-full">
+          <div className="h-full overflow-y-auto">
             <div className="flex flex-col space-y-4 p-4">
               {displayMessages.map((message, index) => {
                 // Apply min-height to last message only if NOT loading (when loading, the loading indicator gets it)
@@ -311,7 +310,7 @@ export function AIChatBox({
                 </div>
               )}
             </div>
-          </ScrollArea>
+          </div>
         )}
       </div>
 

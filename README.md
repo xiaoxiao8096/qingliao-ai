@@ -1,15 +1,32 @@
-# 轻聊 AI（个人多 AI 本机版）
+# 轻聊 AI：纯前端个人多 AI 聊天工具
 
-这是一个无需登录、无需数据库的移动端 AI 聊天工具。它会将你的 AI 档案、名称、头像、API 配置和聊天记录保存到当前浏览器的 `localStorage` 中。
+轻聊 AI 是一个**没有后端、没有账户、没有数据库**的静态网站。你可以在 Safari 中添加多个 AI 档案；每个档案有独立的名称、头像、Base URL、模型名称、API Key 和聊天记录。你的名字、头像、AI 档案和会话均存储在当前浏览器的 `localStorage` 内。
 
-## 使用方式
+## 重要边界
 
-打开网站后，先进入“管理我的 AI”。你可以为每个 AI 单独设置名称、头像、OpenAI Chat Completions 兼容的 Base URL、模型名称和 API Key。随后点击“使用”切换当前聊天 AI；会话记录会按 AI 档案隔离。进入“我的资料”可以设置你自己的名称和头像。
+因为这是纯前端网站，浏览器会直接将你的 API Key 用于请求所配置的模型服务。请仅在受信任的个人设备使用，并确认模型服务允许来自网站域名的浏览器跨域请求（CORS）。清除 Safari 网站数据、使用无痕模式或更换设备会清除所有本地档案与聊天记录。
 
-## GitHub Pages 临时发布
+## 本地运行
 
-本仓库包含 `.github/workflows/deploy-pages.yml`。推送到 `main` 后，在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**，工作流将发布 `dist/public` 静态文件。
+```bash
+pnpm install
+pnpm dev
+```
 
-仓库名固定为 `qingliao-ai` 时，临时网址格式为：`https://<你的 GitHub 用户名>.github.io/qingliao-ai/`。
+## 静态构建
 
-> GitHub Pages 是公开静态托管。应用不会把 API Key 上传到本仓库，但浏览器会用该 Key 直接请求你配置的模型接口。因此仅应在自己信任的设备上使用，且模型服务必须允许浏览器跨域访问（CORS）。清理 Safari 网站数据、使用无痕模式或更换设备后，本地数据不会保留。
+```bash
+pnpm build
+```
+
+构建产物位于 `dist/`，可上传到任何静态网站托管服务。
+
+## 临时 GitHub Pages
+
+本仓库已配置 GitHub Pages 工作流。推送到 `main` 后，在仓库 **Settings → Pages → Build and deployment → Source** 中选择 **GitHub Actions**。
+
+临时网址格式为：`https://xiaoxiao8096.github.io/qingliao-ai/`。
+
+## 长期中国大陆静态托管
+
+若要面向中国大陆长期稳定访问，应使用自有域名、ICP 备案和中国大陆对象存储静态网站/CDN；不需要运行服务器，但域名、存储和 CDN 通常会有持续费用。具体官方依据和操作边界见 [长期静态托管说明](docs/long-term-static-hosting.md)。
