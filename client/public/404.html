@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>轻聊 AI</title>
     <script>
-      location.replace(new URL('./', location.href).pathname);
+      const githubPagesBase = '/qingliao-ai/';
+      const isProjectPages = location.hostname.endsWith('.github.io')
+        && location.pathname.startsWith(githubPagesBase);
+      location.replace(isProjectPages ? githubPagesBase : '/');
     </script>
   </head>
   <body></body>
