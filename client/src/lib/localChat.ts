@@ -1,3 +1,5 @@
+import type { Attachment } from "./attachments";
+
 export type LocalModelSettings = {
   baseUrl: string;
   apiKey: string;
@@ -9,6 +11,8 @@ export type LocalMessage = {
   role: "user" | "assistant";
   content: string;
   createdAt: number;
+  /** 用户消息可携带的附件（图片 / 视频 / 文档等） */
+  attachments?: Attachment[];
 };
 
 export type LocalConversation = {
@@ -71,7 +75,11 @@ export function conversationsForAI(conversations: LocalConversation[], aiProfile
 }
 
 export function saveConversations(conversations: LocalConversation[]) {
-  storage()?.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
+  try {
+    storage()?.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
+  } catch {
+    // localStorage 配额可能因附件 base64 而被占满，丢弃本次写入，避免阻断对话。
+  }
 }
 
 export function renameLocalConversation(conversations: LocalConversation[], id: string, title: string) {

@@ -1,123 +1,69 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Loader2, Send, User, Sparkles } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import type { Attachment } from "@/lib/attachments";
+import { prepareAttachment } from "@/lib/attachments";
+import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Streamdown } from "streamdown";
+import { toast } from "sonner";
 
 /**
- * Message type matching server-side LLM Message interface
+ * Message type matching server-side LLM Message interface.
+ * `attachments` 仅用户消息可能携带。
  */
 export type Message = {
   role: "system" | "user" | "assistant";
   content: string;
+  attachments?: Attachment[];
+};
+
+/** 发送给上层（页面）的载荷：文本 + 附件 */
+export type SendPayload = {
+  text: string;
+  attachments: Attachment[];
 };
 
 export type AIChatBoxProps = {
-  /**
-   * Messages array to display in the chat.
-   * Should match the format used by invokeLLM on the server.
-   */
   messages: Message[];
-
-  /**
-   * Callback when user sends a message.
-   * Typically you'll call a tRPC mutation here to invoke the LLM.
-   */
-  onSendMessage: (content: string) => void;
-
-  /**
-   * Whether the AI is currently generating a response
-   */
+  /** 用户点击发送时回调，携带文本与附件 */
+  onSendMessage: (payload: SendPayload) => void;
   isLoading?: boolean;
-
-  /**
-   * Placeholder text for the input field
-   */
   placeholder?: string;
-
-  /**
-   * Custom className for the container
-   */
   className?: string;
-
-  /**
-   * Height of the chat box (default: 600px)
-   */
   height?: string | number;
-
-  /**
-   * Empty state message to display when no messages
-   */
   emptyStateMessage?: string;
-
-  /**
-   * Suggested prompts to display in empty state
-   * Click to send directly
-   */
   suggestedPrompts?: string[];
-
-  /** Display name shown through the assistant avatar. */
   assistantName?: string;
-  /** Local avatar data URL for the assistant. */
   assistantAvatar?: string;
-  /** Display name shown through the user avatar. */
   userName?: string;
-  /** Local avatar data URL for the user. */
   userAvatar?: string;
 };
 
-/**
- * A ready-to-use AI chat box component that integrates with the LLM system.
- *
- * Features:
- * - Matches server-side Message interface for seamless integration
- * - Markdown rendering with Streamdown
- * - Auto-scrolls to latest message
- * - Loading states
- * - Uses global theme colors from index.css
- *
- * @example
- * ```tsx
- * const ChatPage = () => {
- *   const [messages, setMessages] = useState<Message[]>([
- *     { role: "system", content: "You are a helpful assistant." }
- *   ]);
- *
- *   const chatMutation = trpc.ai.chat.useMutation({
- *     onSuccess: (response) => {
- *       // Assuming your tRPC endpoint returns the AI response as a string
- *       setMessages(prev => [...prev, {
- *         role: "assistant",
- *         content: response
- *       }]);
- *     },
- *     onError: (error) => {
- *       console.error("Chat error:", error);
- *       // Optionally show error message to user
- *     }
- *   });
- *
- *   const handleSend = (content: string) => {
- *     const newMessages = [...messages, { role: "user", content }];
- *     setMessages(newMessages);
- *     chatMutation.mutate({ messages: newMessages });
- *   };
- *
- *   return (
- *     <AIChatBox
- *       messages={messages}
- *       onSendMessage={handleSend}
- *       isLoading={chatMutation.isPending}
- *       suggestedPrompts={[
- *         "Explain quantum computing",
- *         "Write a hello world in Python"
- *       ]}
- *     />
- *   );
- * };
- * ```
- */
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function AttachmentThumb({ attachment }: { attachment: Attachment }) {
+  const isImage = attachment.type.startsWith("image/");
+  const isVideo = attachment.type.startsWith("video/");
+  return (
+    <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted">
+      {isImage && attachment.url ? (
+        <img src={attachment.url} alt={attachment.name} className="size-full object-cover" />
+      ) : isVideo && attachment.url ? (
+        <video src={attachment.url} className="size-full object-cover" muted />
+      ) : isVideo ? (
+        <Film className="size-6 text-muted-foreground" />
+      ) : (
+        <FileText className="size-6 text-muted-foreground" />
+      )}
+    </div>
+  );
+}
+
 export function AIChatBox({
   messages,
   onSendMessage,
@@ -133,15 +79,17 @@ export function AIChatBox({
   userAvatar,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputAreaRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // 用户是否“贴在底部”。向上翻看历史时置 false，新内容不再强行滚动。
+  const stickToBottomRef = useRef(true);
 
-  // Filter out system messages
   const displayMessages = messages.filter((msg) => msg.role !== "system");
 
-  // Calculate min-height for last assistant message to push user message to top
   const [minHeightForLastMessage, setMinHeightForLastMessage] = useState(0);
 
   useEffect(() => {
@@ -149,47 +97,62 @@ export function AIChatBox({
       const containerHeight = containerRef.current.offsetHeight;
       const inputHeight = inputAreaRef.current.offsetHeight;
       const scrollAreaHeight = containerHeight - inputHeight;
-
-      // Reserve space for:
-      // - padding (p-4 = 32px top+bottom)
-      // - user message: 40px (item height) + 16px (margin-top from space-y-4) = 56px
-      // Note: margin-bottom is not counted because it naturally pushes the assistant message down
       const userMessageReservedHeight = 56;
       const calculatedHeight = scrollAreaHeight - 32 - userMessageReservedHeight;
-
       setMinHeightForLastMessage(Math.max(0, calculatedHeight));
     }
   }, []);
 
-  // Scroll to bottom helper function with smooth animation
-  const scrollToBottom = () => {
-    const viewport = scrollAreaRef.current?.querySelector(
-      '[data-radix-scroll-area-viewport]'
-    ) as HTMLDivElement;
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
 
-    if (viewport) {
-      requestAnimationFrame(() => {
-        viewport.scrollTo({
-          top: viewport.scrollHeight,
-          behavior: 'smooth'
-        });
-      });
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 120;
+  }, []);
+
+  // 关键修复：新消息 / 流式输出时自动贴底。
+  // displayMessages 在每次增量更新后都是新引用，因此这里会在流式过程中持续触发。
+  useEffect(() => {
+    if (stickToBottomRef.current) scrollToBottom("auto");
+  }, [displayMessages, isLoading, scrollToBottom]);
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const next: Attachment[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        next.push(await prepareAttachment(file));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : `「${file.name}」添加失败。`);
+      }
     }
+    if (next.length > 0) setAttachments((previous) => [...previous, ...next]);
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((previous) => previous.filter((item) => item.id !== id));
+  }
+
+  const canSend = (input.trim().length > 0 || attachments.length > 0) && !isLoading;
+
+  const send = (text: string, withAttachments: Attachment[]) => {
+    onSendMessage({ text: text.trim(), attachments: withAttachments });
+    setInput("");
+    setAttachments([]);
+    stickToBottomRef.current = true;
+    scrollToBottom("auto");
+    textareaRef.current?.focus();
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedInput = input.trim();
-    if (!trimmedInput || isLoading) return;
-
-    onSendMessage(trimmedInput);
-    setInput("");
-
-    // Scroll immediately after sending
-    scrollToBottom();
-
-    // Keep focus on input
-    textareaRef.current?.focus();
+    if (!canSend) return;
+    send(input, attachments);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -209,7 +172,7 @@ export function AIChatBox({
       style={{ height }}
     >
       {/* Messages Area */}
-      <div ref={scrollAreaRef} className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden">
         {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">
             <div className="flex flex-1 flex-col items-center justify-center gap-6 text-muted-foreground">
@@ -223,7 +186,7 @@ export function AIChatBox({
                   {suggestedPrompts.map((prompt, index) => (
                     <button
                       key={index}
-                      onClick={() => onSendMessage(prompt)}
+                      onClick={() => send(prompt, [])}
                       disabled={isLoading}
                       className="rounded-lg border border-border bg-card px-4 py-2 text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -235,10 +198,13 @@ export function AIChatBox({
             </div>
           </div>
         ) : (
-          <div className="h-full overflow-y-auto">
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="h-full overflow-y-auto"
+          >
             <div className="flex flex-col space-y-4 p-4">
               {displayMessages.map((message, index) => {
-                // Apply min-height to last message only if NOT loading (when loading, the loading indicator gets it)
                 const isLastMessage = index === displayMessages.length - 1;
                 const shouldApplyMinHeight =
                   isLastMessage && !isLoading && minHeightForLastMessage > 0;
@@ -272,14 +238,25 @@ export function AIChatBox({
                           : "bg-muted text-foreground"
                       )}
                     >
+                      {message.role === "user" && message.attachments && message.attachments.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-2">
+                          {message.attachments.map((att) => (
+                            <div key={att.id} className="flex items-center gap-2 rounded-lg bg-black/10 px-2 py-1.5">
+                              <AttachmentThumb attachment={att} />
+                              <div className="min-w-0 pr-1">
+                                <p className="max-w-[140px] truncate text-xs font-medium">{att.name}</p>
+                                <p className="text-[10px] opacity-70">{formatSize(att.size)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {message.role === "assistant" ? (
                         <div className="prose prose-sm dark:prose-invert max-w-none">
                           <Streamdown>{message.content}</Streamdown>
                         </div>
                       ) : (
-                        <p className="whitespace-pre-wrap text-sm">
-                          {message.content}
-                        </p>
+                        <p className="whitespace-pre-wrap text-sm">{message.content}</p>
                       )}
                     </div>
 
@@ -318,29 +295,79 @@ export function AIChatBox({
       <form
         ref={inputAreaRef}
         onSubmit={handleSubmit}
-        className="flex gap-2 p-4 border-t bg-background/50 items-end"
+        className="flex flex-col gap-2 p-4 border-t bg-background/50"
       >
-        <Textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          className="flex-1 max-h-32 resize-none min-h-9"
-          rows={1}
-        />
-        <Button
-          type="submit"
-          size="icon"
-          disabled={!input.trim() || isLoading}
-          className="shrink-0 h-[38px] w-[38px]"
-        >
-          {isLoading ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Send className="size-4" />
-          )}
-        </Button>
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {attachments.map((att) => (
+              <div
+                key={att.id}
+                className="flex items-center gap-2 rounded-xl border border-border bg-white px-2 py-1.5 shadow-sm"
+              >
+                <AttachmentThumb attachment={att} />
+                <div className="min-w-0 pr-1">
+                  <p className="max-w-[140px] truncate text-xs font-medium text-slate-700">{att.name}</p>
+                  <p className="text-[10px] text-slate-400">{formatSize(att.size)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(att.id)}
+                  className="grid size-6 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label={`移除 ${att.name}`}
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2 items-end">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/markdown,text/csv,application/json"
+            className="hidden"
+            onChange={(e) => {
+              handleFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+            className="shrink-0 h-[38px] w-[38px] text-slate-500 hover:text-slate-900"
+            aria-label="添加附件"
+            title="添加附件（图片 / 视频 / PDF / Word 等）"
+          >
+            <Paperclip className="size-4" />
+          </Button>
+          <Textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            className="flex-1 max-h-32 resize-none min-h-9"
+            rows={1}
+          />
+          <Button
+            type="submit"
+            size="icon"
+            disabled={!canSend}
+            className="shrink-0 h-[38px] w-[38px]"
+          >
+            {isLoading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Send className="size-4" />
+            )}
+          </Button>
+        </div>
       </form>
     </div>
   );
