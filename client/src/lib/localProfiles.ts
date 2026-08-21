@@ -4,6 +4,8 @@ export type LocalAIProfile = LocalModelSettings & {
   id: string;
   name: string;
   avatar: string;
+  /** 该 AI 的人物设定 / 系统提示词（可选） */
+  persona: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -42,6 +44,7 @@ function defaultAI(): LocalAIProfile {
     baseUrl: old.baseUrl,
     apiKey: old.apiKey,
     model: old.model,
+    persona: "",
     createdAt: now,
     updatedAt: now,
   };
@@ -82,6 +85,7 @@ export function createAIProfile(): LocalAIProfile {
     baseUrl: "",
     apiKey: "",
     model: "",
+    persona: "",
     createdAt: now,
     updatedAt: now,
   };

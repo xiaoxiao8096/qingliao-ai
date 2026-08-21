@@ -3,7 +3,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
-import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown } from "lucide-react";
+import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Streamdown } from "streamdown";
 import { toast } from "sonner";
@@ -102,6 +102,58 @@ export function AIChatBox({
   // 是否显示“回到最新”悬浮按钮（用户上翻时为真）。
   const [showJump, setShowJump] = useState(false);
 
+  // 语音输入（Web Speech API）。录音时把识别结果实时写回输入框。
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const recordingBaseRef = useRef("");
+  const supportsSpeech =
+    typeof window !== "undefined" &&
+    Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+
+  useEffect(() => () => { try { recognitionRef.current?.stop(); } catch { /* noop */ } }, []);
+
+  function toggleRecording() {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      setIsRecording(false);
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { toast.error("当前浏览器不支持语音输入，请使用 Chrome 或 Edge。"); return; }
+    try {
+      const recognition = new SR();
+      recognition.lang = "zh-CN";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      let finalized = "";
+      recordingBaseRef.current = input;
+      recognition.onresult = (event: any) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) finalized += result[0].transcript;
+          else interim += result[0].transcript;
+        }
+        const next = recordingBaseRef.current + finalized + interim;
+        setInput(next);
+        adjustTextarea();
+      };
+      recognition.onend = () => { setIsRecording(false); };
+      recognition.onerror = (event: any) => {
+        setIsRecording(false);
+        if (event?.error && event.error !== "no-speech" && event.error !== "aborted") {
+          toast.error(`语音识别出错：${event.error}`);
+        }
+      };
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsRecording(true);
+    } catch {
+      toast.error("无法启动语音识别，请检查浏览器麦克风权限。");
+    }
+  }
+
   const displayMessages = messages.filter((msg) => msg.role !== "system");
 
   const [minHeightForLastMessage, setMinHeightForLastMessage] = useState(0);
@@ -173,6 +225,7 @@ export function AIChatBox({
   const canSend = (input.trim().length > 0 || attachments.length > 0) && !isLoading;
 
   const send = (text: string, withAttachments: Attachment[]) => {
+    if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch { /* noop */ } recognitionRef.current = null; setIsRecording(false); }
     onSendMessage({ text: text.trim(), attachments: withAttachments });
     setInput("");
     setAttachments([]);
@@ -205,7 +258,7 @@ export function AIChatBox({
       style={{ height }}
     >
       {/* Messages Area */}
-      <div className="relative flex-1 overflow-hidden">
+      <div className="relative flex-1 min-h-0 overflow-hidden">
         {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">
             <div className="flex flex-1 flex-col items-center justify-center gap-6 text-muted-foreground">
@@ -246,7 +299,7 @@ export function AIChatBox({
                   <div
                     key={index}
                     className={cn(
-                      "flex gap-3",
+                      "flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300",
                       message.role === "user"
                         ? "justify-end items-start"
                         : "justify-start items-start"
@@ -425,14 +478,33 @@ export function AIChatBox({
               <Square className="size-4 fill-current" />
             </Button>
           ) : (
-            <Button
-              type="submit"
-              size="icon"
-              disabled={!canSend}
-              className="shrink-0 h-[38px] w-[38px]"
-            >
-              <Send className="size-4" />
-            </Button>
+            <>
+              {supportsSpeech && (
+                <Button
+                  type="button"
+                  size="icon"
+                  onClick={toggleRecording}
+                  className={cn(
+                    "shrink-0 h-[38px] w-[38px]",
+                    isRecording
+                      ? "bg-rose-500 text-white animate-pulse hover:bg-rose-600"
+                      : "text-slate-500 hover:text-slate-900"
+                  )}
+                  aria-label={isRecording ? "停止语音输入" : "语音输入"}
+                  title={isRecording ? "正在聆听，点击停止" : "语音输入（点击后开始说话）"}
+                >
+                  {isRecording ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+                </Button>
+              )}
+              <Button
+                type="submit"
+                size="icon"
+                disabled={!canSend}
+                className="shrink-0 h-[38px] w-[38px]"
+              >
+                <Send className="size-4" />
+              </Button>
+            </>
           )}
         </div>
       </form>

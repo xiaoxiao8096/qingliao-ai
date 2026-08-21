@@ -59,6 +59,21 @@ function updateStoredConversations(setConversations: React.Dispatch<React.SetSta
   setConversations(previous => { const next = mutate(previous).sort((a, b) => b.updatedAt - a.updatedAt); saveConversations(next); return next; });
 }
 
+/**
+ * 构建系统提示词：
+ * - 始终声明当前 AI 的身份（名字）。
+ * - 若该 AI 在「我的 AI」里单独设置了人物设定，则注入。
+ * - 若用户在「我的资料」里填了昵称，则告知 AI 直接称呼其名字，让对话更自然。
+ * 每次发送都重新读取，因此用户在资料页改完名字后，下一次对话即生效。
+ */
+function buildSystemPrompt(ai: LocalAIProfile, user: { name: string }): string {
+  const parts = [`你是 ${ai.name}。`];
+  if (ai.persona && ai.persona.trim()) parts.push(ai.persona.trim().replace(/[。.]+$/, "") + "。");
+  if (user.name && user.name.trim() && user.name.trim() !== "我") parts.push(`用户的名字是 ${user.name.trim()}，请直接称呼其名字，让交流更自然。`);
+  parts.push("你准确、友善、简洁；除非用户要求，否则使用中文回复。");
+  return parts.join("");
+}
+
 function initials(name: string) { return name.trim().slice(0, 1).toUpperCase() || "AI"; }
 
 export default function Home() {
@@ -106,7 +121,7 @@ export default function Home() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const response = await fetch(modelEndpoint(activeAI.baseUrl), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${activeAI.apiKey}` }, signal: controller.signal, body: JSON.stringify({ model: activeAI.model, stream: true, messages: [{ role: "system", content: `你是 ${activeAI.name}，一个准确、友善、简洁的助手。` }, ...history, { role: "user", content: buildContent({ content: text, attachments }) }] }) });
+      const response = await fetch(modelEndpoint(activeAI.baseUrl), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${activeAI.apiKey}` }, signal: controller.signal, body: JSON.stringify({ model: activeAI.model, stream: true, messages: [{ role: "system", content: buildSystemPrompt(activeAI, getUserProfile()) }, ...history, { role: "user", content: buildContent({ content: text, attachments }) }] }) });
       if (!response.ok || !response.body) { const payload = await response.json().catch(() => null) as { error?: { message?: string } | string } | null; const reason = typeof payload?.error === "string" ? payload.error : payload?.error?.message; throw new Error(reason ?? "模型服务没有响应，请检查当前 AI 的配置。"); }
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
       while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const chunks = buffer.split(/\r?\n\r?\n/); buffer = chunks.pop() ?? ""; for (const chunk of chunks) { const parsed = parseSseEventBlock(chunk); if (!parsed) continue; if (parsed.error) throw new Error(parsed.error); if (parsed.delta) updateStoredConversations(setConversations, previous => appendAssistantDelta(previous, conversationId, assistantMessage.id, parsed.delta)); } }
