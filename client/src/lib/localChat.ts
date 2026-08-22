@@ -161,6 +161,64 @@ export type ModelConnectionCheck =
   | { ok: true; endpoint: string }
   | { ok: false; endpoint: string; message: string };
 
+export type AvailableModelList =
+  | { ok: true; endpoint: string; models: string[] }
+  | { ok: false; endpoint: string; message: string };
+
+function modelListFailure(endpoint: string, status: number) {
+  if (status === 401 || status === 403) {
+    return { ok: false as const, endpoint, message: "服务已响应，但 API Key 无效或没有访问权限。" };
+  }
+  if (status === 404) {
+    return { ok: false as const, endpoint, message: "服务未提供 /models 检查接口。请确认 Base URL 是否为 OpenAI 兼容地址。" };
+  }
+  if (status === 429) {
+    return { ok: false as const, endpoint, message: "服务已响应，但当前请求受限或额度不足。" };
+  }
+  return { ok: false as const, endpoint, message: `服务返回 HTTP ${status}，请检查 API 地址或服务状态。` };
+}
+
+export async function fetchAvailableModels(
+  baseUrl: string,
+  apiKey: string,
+  request: typeof fetch = fetch,
+): Promise<AvailableModelList> {
+  const endpoint = modelListEndpoint(baseUrl);
+  if (!baseUrl.trim() || !apiKey.trim()) {
+    return { ok: false, endpoint, message: "请先填写 API Base URL 和 API Key。" };
+  }
+
+  try {
+    const response = await request(endpoint, {
+      method: "GET",
+      headers: { authorization: `Bearer ${apiKey.trim()}` },
+    });
+    if (!response.ok) return modelListFailure(endpoint, response.status);
+
+    const payload = await response.json().catch(() => null) as unknown;
+    const candidates = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)
+        ? (payload as { data: unknown[] }).data
+        : payload && typeof payload === "object" && Array.isArray((payload as { models?: unknown }).models)
+          ? (payload as { models: unknown[] }).models
+          : [];
+    const models = Array.from(new Set(candidates.flatMap(item => {
+      if (typeof item === "string") return item.trim() ? [item.trim()] : [];
+      if (!item || typeof item !== "object") return [];
+      const value = (item as { id?: unknown; name?: unknown }).id ?? (item as { name?: unknown }).name;
+      return typeof value === "string" && value.trim() ? [value.trim()] : [];
+    })));
+
+    if (!models.length) {
+      return { ok: false, endpoint, message: "服务已响应，但没有返回可选模型。你仍可手动填写模型名称。" };
+    }
+    return { ok: true, endpoint, models };
+  } catch {
+    return { ok: false, endpoint, message: "浏览器无法访问该服务。请检查网络、HTTPS 地址或服务端是否允许跨域（CORS）。" };
+  }
+}
+
 export async function checkModelConnection(
   baseUrl: string,
   apiKey: string,
@@ -178,16 +236,7 @@ export async function checkModelConnection(
     });
 
     if (response.ok) return { ok: true, endpoint };
-    if (response.status === 401 || response.status === 403) {
-      return { ok: false, endpoint, message: "服务已响应，但 API Key 无效或没有访问权限。" };
-    }
-    if (response.status === 404) {
-      return { ok: false, endpoint, message: "服务未提供 /models 检查接口。请确认 Base URL 是否为 OpenAI 兼容地址。" };
-    }
-    if (response.status === 429) {
-      return { ok: false, endpoint, message: "服务已响应，但当前请求受限或额度不足。" };
-    }
-    return { ok: false, endpoint, message: `服务返回 HTTP ${response.status}，请检查 API 地址或服务状态。` };
+    return modelListFailure(endpoint, response.status);
   } catch {
     return { ok: false, endpoint, message: "浏览器无法访问该服务。请检查网络、HTTPS 地址或服务端是否允许跨域（CORS）。" };
   }

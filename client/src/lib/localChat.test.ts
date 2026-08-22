@@ -5,6 +5,7 @@ import {
   checkModelConnection,
   createConversation,
   dropEmptyAssistantMessage,
+  fetchAvailableModels,
   getConversations,
   getLocalDraft,
   getSettings,
@@ -126,6 +127,28 @@ describe("personal local chat storage", () => {
     expect(denied).toMatchObject({ ok: false, message: expect.stringContaining("API Key") });
     expect(corsBlocked).toMatchObject({ ok: false, message: expect.stringContaining("跨域") });
     await expect(checkModelConnection("", "", async () => new Response())).resolves.toMatchObject({ ok: false, message: expect.stringContaining("填写") });
+  });
+
+  it("reads, de-duplicates and validates OpenAI-compatible model lists without chat content", async () => {
+    const listed = await fetchAvailableModels(
+      "https://api.example.com/v1",
+      "sk-local",
+      async () => new Response(JSON.stringify({ data: [{ id: "step-3.7-flash" }, { id: "step-3.5-flash" }, { id: "step-3.7-flash" }] }), { status: 200 }),
+    );
+    const empty = await fetchAvailableModels(
+      "https://api.example.com/v1",
+      "sk-local",
+      async () => new Response(JSON.stringify({ data: [] }), { status: 200 }),
+    );
+    const denied = await fetchAvailableModels(
+      "https://api.example.com/v1",
+      "sk-local",
+      async () => new Response("{}", { status: 403 }),
+    );
+
+    expect(listed).toMatchObject({ ok: true, endpoint: "https://api.example.com/v1/models", models: ["step-3.7-flash", "step-3.5-flash"] });
+    expect(empty).toMatchObject({ ok: false, message: expect.stringContaining("手动填写") });
+    expect(denied).toMatchObject({ ok: false, message: expect.stringContaining("API Key") });
   });
 
   it("parses browser-compatible SSE deltas, done events and upstream errors", () => {

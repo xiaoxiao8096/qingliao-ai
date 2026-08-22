@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { checkModelConnection } from "@/lib/localChat";
+import { checkModelConnection, fetchAvailableModels } from "@/lib/localChat";
 import {
   createAIProfile,
   getAIProfiles,
@@ -47,13 +47,18 @@ export default function AIManager() {
   const [editingId, setEditingId] = useState(() => getActiveAIId());
   const [showKey, setShowKey] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const avatarInput = useRef<HTMLInputElement>(null);
   const current = profiles.find(profile => profile.id === editingId) ?? profiles[0];
   const [form, setForm] = useState<LocalAIProfile>(() => current);
 
   useEffect(() => {
     const selected = profiles.find(profile => profile.id === editingId) ?? profiles[0];
-    if (selected) setForm(selected);
+    if (selected) {
+      setForm(selected);
+      setAvailableModels([]);
+    }
   }, [editingId, profiles]);
 
   function persist(next: LocalAIProfile[]) {
@@ -143,6 +148,31 @@ export default function AIManager() {
     }
   }
 
+  async function loadModels() {
+    if (!form.baseUrl.trim() || !form.apiKey.trim()) {
+      toast.error("请先填写 API Base URL 和 API Key。");
+      return;
+    }
+
+    try {
+      validateBaseUrl(form.baseUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "请检查 API 地址。");
+      return;
+    }
+
+    setLoadingModels(true);
+    const result = await fetchAvailableModels(form.baseUrl, form.apiKey);
+    setLoadingModels(false);
+    if (result.ok) {
+      setAvailableModels(result.models);
+      toast.success(`已获取 ${result.models.length} 个可用模型。`, { description: "请选择一个模型；也可保留手动填写。" });
+    } else {
+      setAvailableModels([]);
+      toast.error(result.message, { description: result.endpoint });
+    }
+  }
+
   function useAI(id: string) {
     setActiveAIId(id);
     setActiveId(id);
@@ -194,7 +224,12 @@ export default function AIManager() {
 
               <div className="space-y-2"><Label htmlFor="ai-name">AI 名称</Label><Input id="ai-name" value={form.name} onChange={event => setForm(previous => ({ ...previous, name: event.target.value }))} placeholder="例如 工作助手" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required /></div>
               <div className="space-y-2"><Label htmlFor="ai-url">API Base URL</Label><Input id="ai-url" value={form.baseUrl} onChange={event => setForm(previous => ({ ...previous, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required /></div>
-              <div className="space-y-2"><Label htmlFor="ai-model">模型名称</Label><Input id="ai-model" value={form.model} onChange={event => setForm(previous => ({ ...previous, model: event.target.value }))} placeholder="例如 gpt-4o-mini" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required /></div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3"><Label htmlFor="ai-model">模型名称</Label><Button type="button" onClick={loadModels} disabled={loadingModels} variant="outline" size="sm" className="h-8 rounded-lg border-sky-200 bg-white text-[#397499] hover:bg-sky-50">{loadingModels ? <><Loader2 className="mr-1.5 size-3.5 animate-spin" />获取中</> : <><Bot className="mr-1.5 size-3.5" />获取模型</>}</Button></div>
+                {availableModels.length > 0 && <select value={availableModels.includes(form.model) ? form.model : ""} onChange={event => setForm(previous => ({ ...previous, model: event.target.value }))} className="h-11 w-full rounded-xl border border-sky-200 bg-sky-50/50 px-3 text-sm text-slate-700 outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-100" aria-label="选择已获取的模型"><option value="">从已获取模型中选择</option>{availableModels.map(model => <option key={model} value={model}>{model}</option>)}</select>}
+                <Input id="ai-model" value={form.model} onChange={event => setForm(previous => ({ ...previous, model: event.target.value }))} placeholder="例如 step-3.7-flash；也可点击上方自动获取" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required />
+                <p className="text-xs leading-5 text-slate-400">先填写地址和密钥，再点“获取模型”。接口未提供列表时仍可手动填写模型名称。</p>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="ai-key">API Key</Label>
                 <div className="relative"><KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="ai-key" type={showKey ? "text" : "password"} value={form.apiKey} onChange={event => setForm(previous => ({ ...previous, apiKey: event.target.value }))} placeholder="sk-..." className="h-11 rounded-xl border-slate-200 bg-slate-50/60 pl-10 pr-11" autoComplete="off" required /><button type="button" onClick={() => setShowKey(value => !value)} className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}>{showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div>
