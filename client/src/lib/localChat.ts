@@ -26,6 +26,7 @@ export type LocalConversation = {
 
 const SETTINGS_KEY = "qingliao.personal.settings.v1";
 const CONVERSATIONS_KEY = "qingliao.personal.conversations.v1";
+const DRAFTS_KEY = "qingliao.personal.drafts.v1";
 
 const defaultSettings: LocalModelSettings = { baseUrl: "", apiKey: "", model: "" };
 
@@ -74,12 +75,41 @@ export function conversationsForAI(conversations: LocalConversation[], aiProfile
   return conversations.filter(conversation => conversation.aiProfileId === aiProfileId);
 }
 
+export function searchLocalConversations(conversations: LocalConversation[], query: string) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return conversations;
+
+  return conversations.filter(conversation => {
+    const haystack = [
+      conversation.title,
+      ...conversation.messages.map(message => message.content),
+    ].join("\n").toLocaleLowerCase();
+
+    return haystack.includes(normalizedQuery);
+  });
+}
+
 export function saveConversations(conversations: LocalConversation[]) {
   try {
     storage()?.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
   } catch {
     // localStorage 配额可能因附件 base64 而被占满，丢弃本次写入，避免阻断对话。
   }
+}
+
+export function getLocalDraft(key: string) {
+  const drafts = parseJson<Record<string, string>>(DRAFTS_KEY, {});
+  return typeof drafts[key] === "string" ? drafts[key] : "";
+}
+
+export function saveLocalDraft(key: string, value: string) {
+  const drafts = parseJson<Record<string, string>>(DRAFTS_KEY, {});
+  if (value) {
+    drafts[key] = value;
+  } else {
+    delete drafts[key];
+  }
+  storage()?.setItem(DRAFTS_KEY, JSON.stringify(drafts));
 }
 
 export function renameLocalConversation(conversations: LocalConversation[], id: string, title: string) {
@@ -120,6 +150,47 @@ export function dropEmptyAssistantMessage(conversations: LocalConversation[], co
 export function modelEndpoint(baseUrl: string) {
   const normalized = baseUrl.trim().replace(/\/$/, "");
   return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
+}
+
+export function modelListEndpoint(baseUrl: string) {
+  const normalized = baseUrl.trim().replace(/\/$/, "").replace(/\/chat\/completions$/, "");
+  return `${normalized}/models`;
+}
+
+export type ModelConnectionCheck =
+  | { ok: true; endpoint: string }
+  | { ok: false; endpoint: string; message: string };
+
+export async function checkModelConnection(
+  baseUrl: string,
+  apiKey: string,
+  request: typeof fetch = fetch,
+): Promise<ModelConnectionCheck> {
+  const endpoint = modelListEndpoint(baseUrl);
+  if (!baseUrl.trim() || !apiKey.trim()) {
+    return { ok: false, endpoint, message: "请先填写 API Base URL 和 API Key。" };
+  }
+
+  try {
+    const response = await request(endpoint, {
+      method: "GET",
+      headers: { authorization: `Bearer ${apiKey.trim()}` },
+    });
+
+    if (response.ok) return { ok: true, endpoint };
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, endpoint, message: "服务已响应，但 API Key 无效或没有访问权限。" };
+    }
+    if (response.status === 404) {
+      return { ok: false, endpoint, message: "服务未提供 /models 检查接口。请确认 Base URL 是否为 OpenAI 兼容地址。" };
+    }
+    if (response.status === 429) {
+      return { ok: false, endpoint, message: "服务已响应，但当前请求受限或额度不足。" };
+    }
+    return { ok: false, endpoint, message: `服务返回 HTTP ${response.status}，请检查 API 地址或服务状态。` };
+  } catch {
+    return { ok: false, endpoint, message: "浏览器无法访问该服务。请检查网络、HTTPS 地址或服务端是否允许跨域（CORS）。" };
+  }
 }
 
 export function initialTitle(content: string) {

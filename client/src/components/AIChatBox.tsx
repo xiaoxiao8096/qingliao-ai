@@ -3,6 +3,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
+import { getLocalDraft, saveLocalDraft } from "@/lib/localChat";
 import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Streamdown } from "streamdown";
@@ -41,6 +42,8 @@ export type AIChatBoxProps = {
   assistantAvatar?: string;
   userName?: string;
   userAvatar?: string;
+  /** Optional local-storage key used to restore an unsent draft. */
+  draftKey?: string;
 };
 
 function formatSize(bytes: number) {
@@ -89,6 +92,7 @@ export function AIChatBox({
   assistantAvatar,
   userName = "我",
   userAvatar,
+  draftKey,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -157,6 +161,10 @@ export function AIChatBox({
   const displayMessages = messages.filter((msg) => msg.role !== "system");
 
   const [minHeightForLastMessage, setMinHeightForLastMessage] = useState(0);
+
+  useEffect(() => {
+    setInput(draftKey ? getLocalDraft(draftKey) : "");
+  }, [draftKey]);
 
   useEffect(() => {
     if (containerRef.current && inputAreaRef.current) {
@@ -228,6 +236,7 @@ export function AIChatBox({
     if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch { /* noop */ } recognitionRef.current = null; setIsRecording(false); }
     onSendMessage({ text: text.trim(), attachments: withAttachments });
     setInput("");
+    if (draftKey) saveLocalDraft(draftKey, "");
     setAttachments([]);
     stickToBottomRef.current = true;
     scrollToBottom("auto");
@@ -460,7 +469,12 @@ export function AIChatBox({
           <Textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
+            onChange={(e) => {
+              const value = e.target.value;
+              setInput(value);
+              if (draftKey) saveLocalDraft(draftKey, value);
+              adjustTextarea();
+            }}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             className="flex-1 max-h-32 resize-none min-h-9"
