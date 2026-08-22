@@ -3,6 +3,7 @@ import {
   appendAssistantDelta,
   appendLocalMessages,
   checkModelConnection,
+  checkSelectedModel,
   createConversation,
   dropEmptyAssistantMessage,
   fetchAvailableModels,
@@ -149,6 +150,18 @@ describe("personal local chat storage", () => {
     expect(listed).toMatchObject({ ok: true, endpoint: "https://api.example.com/v1/models", models: ["step-3.7-flash", "step-3.5-flash"] });
     expect(empty).toMatchObject({ ok: false, message: expect.stringContaining("手动填写") });
     expect(denied).toMatchObject({ ok: false, message: expect.stringContaining("API Key") });
+  });
+
+  it("tests the selected model with a minimal non-streaming chat request before saving", async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200 }));
+    const accepted = await checkSelectedModel("https://api.example.com/v1", "sk-local", "step-3.7-flash", request);
+    const missing = await checkSelectedModel("https://api.example.com/v1", "sk-local", "", request);
+    const absentModel = await checkSelectedModel("https://api.example.com/v1", "sk-local", "not-found", async () => new Response("{}", { status: 404 }));
+
+    expect(accepted).toMatchObject({ ok: true, endpoint: "https://api.example.com/v1/chat/completions" });
+    expect(request).toHaveBeenCalledWith("https://api.example.com/v1/chat/completions", expect.objectContaining({ method: "POST" }));
+    expect(missing).toMatchObject({ ok: false, message: expect.stringContaining("选择") });
+    expect(absentModel).toMatchObject({ ok: false, message: expect.stringContaining("没有找到") });
   });
 
   it("parses browser-compatible SSE deltas, done events and upstream errors", () => {

@@ -5,7 +5,7 @@ import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
 import { getLocalDraft, saveLocalDraft } from "@/lib/localChat";
 import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Streamdown } from "streamdown";
 import { toast } from "sonner";
 
@@ -101,6 +101,8 @@ export function AIChatBox({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const messageContentRef = useRef<HTMLDivElement>(null);
+  const messageEndRef = useRef<HTMLDivElement>(null);
   // 用户是否“贴在底部”。向上翻看历史时置 false，新内容不再强行滚动。
   const stickToBottomRef = useRef(true);
   // 是否显示“回到最新”悬浮按钮（用户上翻时为真）。
@@ -179,7 +181,12 @@ export function AIChatBox({
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollContainerRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
+    if (!el) return;
+    if (behavior === "smooth") {
+      messageEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
     setShowJump(false);
   }, []);
 
@@ -207,11 +214,24 @@ export function AIChatBox({
     setShowJump(distanceFromBottom >= 120);
   }, []);
 
-  // 关键修复：新消息 / 流式输出时自动贴底。
-  // displayMessages 在每次增量更新后都是新引用，因此这里会在流式过程中持续触发。
+  const lastMessageContent = displayMessages.at(-1)?.content ?? "";
+
+  // 新消息、流式文本增长或 Markdown 内容重排时都贴底；用户主动上滑后则保留阅读位置。
+  useLayoutEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const frame = requestAnimationFrame(() => scrollToBottom("auto"));
+    return () => cancelAnimationFrame(frame);
+  }, [displayMessages.length, lastMessageContent, isLoading, scrollToBottom]);
+
   useEffect(() => {
-    if (stickToBottomRef.current) scrollToBottom("auto");
-  }, [displayMessages, isLoading, scrollToBottom]);
+    const content = messageContentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottomRef.current) requestAnimationFrame(() => scrollToBottom("auto"));
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [displayMessages.length, scrollToBottom]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -298,7 +318,7 @@ export function AIChatBox({
             onScroll={handleScroll}
             className="h-full overflow-y-auto"
           >
-            <div className="flex flex-col space-y-4 p-4">
+            <div ref={messageContentRef} className="flex flex-col space-y-4 p-4">
               {displayMessages.map((message, index) => {
                 const isLastMessage = index === displayMessages.length - 1;
                 const shouldApplyMinHeight =
@@ -308,7 +328,10 @@ export function AIChatBox({
                   <div
                     key={index}
                     className={cn(
-                      "flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300",
+                      "flex gap-3",
+                      message.role === "assistant"
+                        ? `chat-message-enter chat-message-enter-${((message.createdAt ?? index) % 3) + 1}`
+                        : "chat-message-sent",
                       message.role === "user"
                         ? "justify-end items-start"
                         : "justify-start items-start"
@@ -378,8 +401,7 @@ export function AIChatBox({
               })}
 
               {isLoading && (
-                <div
-                  className="flex items-start gap-3"
+                <div className="flex items-start gap-3 chat-message-thinking"
                   style={
                     minHeightForLastMessage > 0
                       ? { minHeight: `${minHeightForLastMessage}px` }
@@ -389,11 +411,14 @@ export function AIChatBox({
                   <div title={assistantName} className="size-8 shrink-0 mt-1 overflow-hidden rounded-full bg-primary/10 flex items-center justify-center">
                     {assistantAvatar ? <img src={assistantAvatar} alt="" className="size-full object-cover" /> : <Sparkles className="size-4 text-primary" />}
                   </div>
-                  <div className="rounded-lg bg-muted px-4 py-2.5">
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <div className="flex items-center gap-1.5 rounded-lg bg-muted px-4 py-3">
+                    <span className="chat-typing-dot" />
+                    <span className="chat-typing-dot [animation-delay:120ms]" />
+                    <span className="chat-typing-dot [animation-delay:240ms]" />
                   </div>
                 </div>
               )}
+              <div ref={messageEndRef} aria-hidden="true" className="h-px" />
             </div>
           </div>
         )}

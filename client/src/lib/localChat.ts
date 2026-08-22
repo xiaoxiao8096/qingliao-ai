@@ -165,6 +165,10 @@ export type AvailableModelList =
   | { ok: true; endpoint: string; models: string[] }
   | { ok: false; endpoint: string; message: string };
 
+export type SelectedModelCheck =
+  | { ok: true; endpoint: string }
+  | { ok: false; endpoint: string; message: string };
+
 function modelListFailure(endpoint: string, status: number) {
   if (status === 401 || status === 403) {
     return { ok: false as const, endpoint, message: "服务已响应，但 API Key 无效或没有访问权限。" };
@@ -216,6 +220,50 @@ export async function fetchAvailableModels(
     return { ok: true, endpoint, models };
   } catch {
     return { ok: false, endpoint, message: "浏览器无法访问该服务。请检查网络、HTTPS 地址或服务端是否允许跨域（CORS）。" };
+  }
+}
+
+export async function checkSelectedModel(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  request: typeof fetch = fetch,
+): Promise<SelectedModelCheck> {
+  const endpoint = modelEndpoint(baseUrl);
+  if (!baseUrl.trim() || !apiKey.trim() || !model.trim()) {
+    return { ok: false, endpoint, message: "请先填写 API Base URL、API Key 并选择一个模型。" };
+  }
+
+  try {
+    const response = await request(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        model: model.trim(),
+        stream: false,
+        max_tokens: 1,
+        messages: [{ role: "user", content: "ping" }],
+      }),
+    });
+
+    if (response.ok) return { ok: true, endpoint };
+    const payload = await response.json().catch(() => null) as { error?: { message?: string } | string } | null;
+    const upstreamMessage = typeof payload?.error === "string" ? payload.error : payload?.error?.message;
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, endpoint, message: "API Key 无效，或当前账户没有调用该模型的权限。" };
+    }
+    if (response.status === 404) {
+      return { ok: false, endpoint, message: `没有找到「${model.trim()}」或聊天接口地址不正确。请重新获取模型后再选择。` };
+    }
+    if (response.status === 429) {
+      return { ok: false, endpoint, message: "接口可达，但当前请求受限或账户额度不足。" };
+    }
+    return { ok: false, endpoint, message: upstreamMessage || `模型测试失败（HTTP ${response.status}）。请检查模型名称和服务状态。` };
+  } catch {
+    return { ok: false, endpoint, message: "浏览器无法访问聊天接口。请检查网络、HTTPS 地址或服务端是否允许跨域（CORS）。" };
   }
 }
 

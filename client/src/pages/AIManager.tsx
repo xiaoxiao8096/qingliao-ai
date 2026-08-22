@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { checkModelConnection, fetchAvailableModels } from "@/lib/localChat";
+import { checkModelConnection, checkSelectedModel, fetchAvailableModels } from "@/lib/localChat";
 import {
   createAIProfile,
   getAIProfiles,
@@ -49,6 +49,9 @@ export default function AIManager() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [testingSelectedModel, setTestingSelectedModel] = useState(false);
+  const [modelFeedback, setModelFeedback] = useState<{ kind: "loading" | "error" | "success"; text: string } | null>(null);
+  const [modelTestFeedback, setModelTestFeedback] = useState<{ kind: "loading" | "error" | "success"; text: string } | null>(null);
   const avatarInput = useRef<HTMLInputElement>(null);
   const current = profiles.find(profile => profile.id === editingId) ?? profiles[0];
   const [form, setForm] = useState<LocalAIProfile>(() => current);
@@ -58,6 +61,8 @@ export default function AIManager() {
     if (selected) {
       setForm(selected);
       setAvailableModels([]);
+      setModelFeedback(null);
+      setModelTestFeedback(null);
     }
   }, [editingId, profiles]);
 
@@ -162,13 +167,41 @@ export default function AIManager() {
     }
 
     setLoadingModels(true);
+    setModelFeedback({ kind: "loading", text: "正在请求 /models 并整理可选模型…" });
     const result = await fetchAvailableModels(form.baseUrl, form.apiKey);
     setLoadingModels(false);
     if (result.ok) {
       setAvailableModels(result.models);
+      setModelFeedback({ kind: "success", text: `已获取 ${result.models.length} 个可用模型，请选择一个。` });
       toast.success(`已获取 ${result.models.length} 个可用模型。`, { description: "请选择一个模型；也可保留手动填写。" });
     } else {
       setAvailableModels([]);
+      setModelFeedback({ kind: "error", text: result.message });
+      toast.error(result.message, { description: result.endpoint });
+    }
+  }
+
+  async function testCurrentModel() {
+    if (!form.baseUrl.trim() || !form.apiKey.trim() || !form.model.trim()) {
+      toast.error("请先填写 API Base URL、API Key 并选择一个模型。");
+      return;
+    }
+    try {
+      validateBaseUrl(form.baseUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "请检查 API 地址。");
+      return;
+    }
+
+    setTestingSelectedModel(true);
+    setModelTestFeedback({ kind: "loading", text: `正在测试「${form.model.trim()}」…` });
+    const result = await checkSelectedModel(form.baseUrl, form.apiKey, form.model);
+    setTestingSelectedModel(false);
+    if (result.ok) {
+      setModelTestFeedback({ kind: "success", text: `「${form.model.trim()}」可用，可以保存。` });
+      toast.success(`「${form.model.trim()}」可用，可以保存。`, { description: "已完成一次最小化连接测试。" });
+    } else {
+      setModelTestFeedback({ kind: "error", text: result.message });
       toast.error(result.message, { description: result.endpoint });
     }
   }
@@ -223,16 +256,17 @@ export default function AIManager() {
               </div>
 
               <div className="space-y-2"><Label htmlFor="ai-name">AI 名称</Label><Input id="ai-name" value={form.name} onChange={event => setForm(previous => ({ ...previous, name: event.target.value }))} placeholder="例如 工作助手" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required /></div>
-              <div className="space-y-2"><Label htmlFor="ai-url">API Base URL</Label><Input id="ai-url" value={form.baseUrl} onChange={event => setForm(previous => ({ ...previous, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required /></div>
+              <div className="space-y-2"><Label htmlFor="ai-url">API Base URL</Label><Input id="ai-url" value={form.baseUrl} onChange={event => { setForm(previous => ({ ...previous, baseUrl: event.target.value })); setAvailableModels([]); setModelFeedback(null); setModelTestFeedback(null); }} placeholder="https://api.example.com/v1" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required /></div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3"><Label htmlFor="ai-model">模型名称</Label><Button type="button" onClick={loadModels} disabled={loadingModels} variant="outline" size="sm" className="h-8 rounded-lg border-sky-200 bg-white text-[#397499] hover:bg-sky-50">{loadingModels ? <><Loader2 className="mr-1.5 size-3.5 animate-spin" />获取中</> : <><Bot className="mr-1.5 size-3.5" />获取模型</>}</Button></div>
+                <div className="flex items-center justify-between gap-3"><Label htmlFor="ai-model">模型名称</Label><Button type="button" onClick={loadModels} disabled={loadingModels} variant="outline" size="sm" className="h-8 rounded-lg border-sky-200 bg-white text-[#397499] hover:bg-sky-50 disabled:opacity-70">{loadingModels ? <><Loader2 className="mr-1.5 size-3.5 animate-spin" />正在获取</> : <><Bot className="mr-1.5 size-3.5" />获取模型</>}</Button></div>
                 {availableModels.length > 0 && <select value={availableModels.includes(form.model) ? form.model : ""} onChange={event => setForm(previous => ({ ...previous, model: event.target.value }))} className="h-11 w-full rounded-xl border border-sky-200 bg-sky-50/50 px-3 text-sm text-slate-700 outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-100" aria-label="选择已获取的模型"><option value="">从已获取模型中选择</option>{availableModels.map(model => <option key={model} value={model}>{model}</option>)}</select>}
-                <Input id="ai-model" value={form.model} onChange={event => setForm(previous => ({ ...previous, model: event.target.value }))} placeholder="例如 step-3.7-flash；也可点击上方自动获取" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required />
+                <Input id="ai-model" value={form.model} onChange={event => { setForm(previous => ({ ...previous, model: event.target.value })); setModelTestFeedback(null); }} placeholder="例如 step-3.7-flash；也可点击上方自动获取" className="h-11 rounded-xl border-slate-200 bg-slate-50/60" required />
                 <p className="text-xs leading-5 text-slate-400">先填写地址和密钥，再点“获取模型”。接口未提供列表时仍可手动填写模型名称。</p>
+                {modelFeedback && <p aria-live="polite" role={modelFeedback.kind === "error" ? "alert" : undefined} className={`config-feedback-enter config-feedback-${modelFeedback.kind} rounded-lg px-3 py-2 text-xs leading-5 ${modelFeedback.kind === "loading" ? "bg-sky-50 text-sky-700" : modelFeedback.kind === "success" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{modelFeedback.kind === "loading" && <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />}{modelFeedback.text}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ai-key">API Key</Label>
-                <div className="relative"><KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="ai-key" type={showKey ? "text" : "password"} value={form.apiKey} onChange={event => setForm(previous => ({ ...previous, apiKey: event.target.value }))} placeholder="sk-..." className="h-11 rounded-xl border-slate-200 bg-slate-50/60 pl-10 pr-11" autoComplete="off" required /><button type="button" onClick={() => setShowKey(value => !value)} className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}>{showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div>
+                <div className="relative"><KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="ai-key" type={showKey ? "text" : "password"} value={form.apiKey} onChange={event => { setForm(previous => ({ ...previous, apiKey: event.target.value })); setAvailableModels([]); setModelFeedback(null); setModelTestFeedback(null); }} placeholder="sk-..." className="h-11 rounded-xl border-slate-200 bg-slate-50/60 pl-10 pr-11" autoComplete="off" required /><button type="button" onClick={() => setShowKey(value => !value)} className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}>{showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div>
               </div>
 
               <div className="space-y-2">
@@ -241,10 +275,12 @@ export default function AIManager() {
               </div>
 
               <div className="rounded-2xl border border-sky-100 bg-sky-50/50 p-3.5">
-                <div className="flex gap-3"><Wifi className="mt-0.5 size-4 shrink-0 text-[#4a86a8]" /><div><p className="text-sm font-semibold text-slate-700">先检查连接</p><p className="mt-0.5 text-xs leading-5 text-slate-500">仅请求模型服务的 <code>/models</code>，不会发送聊天内容。可帮助发现地址、跨域或授权问题。</p></div></div>
-                <Button type="button" onClick={testConnection} disabled={testingConnection} variant="outline" className="mt-3 h-10 w-full rounded-xl border-sky-200 bg-white text-[#397499] hover:bg-sky-50">
-                  {testingConnection ? <><Loader2 className="mr-2 size-4 animate-spin" />正在检查</> : <><Wifi className="mr-2 size-4" />测试 API 连接</>}
-                </Button>
+                <div className="flex gap-3"><Wifi className="mt-0.5 size-4 shrink-0 text-[#4a86a8]" /><div><p className="text-sm font-semibold text-slate-700">保存前验证</p><p className="mt-0.5 text-xs leading-5 text-slate-500">可先检查 <code>/models</code> 是否可访问；“测试当前模型”会发送一次不写入聊天记录的最小化请求，以同时验证 Key 和模型名称。</p></div></div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <Button type="button" onClick={testConnection} disabled={testingConnection || testingSelectedModel} variant="outline" className="h-10 rounded-xl border-sky-200 bg-white text-[#397499] hover:bg-sky-50">{testingConnection ? <><Loader2 className="mr-2 size-4 animate-spin" />正在检查</> : <><Wifi className="mr-2 size-4" />检查 API 连接</>}</Button>
+                  <Button type="button" onClick={testCurrentModel} disabled={testingConnection || testingSelectedModel} className="h-10 rounded-xl bg-slate-900 text-white hover:bg-slate-700">{testingSelectedModel ? <><Loader2 className="mr-2 size-4 animate-spin" />正在测试</> : <><CheckCircle2 className="mr-2 size-4" />测试当前模型</>}</Button>
+                </div>
+                {modelTestFeedback && <p aria-live="polite" role={modelTestFeedback.kind === "error" ? "alert" : undefined} className={`config-feedback-enter config-feedback-${modelTestFeedback.kind} mt-3 rounded-lg px-3 py-2 text-xs leading-5 ${modelTestFeedback.kind === "loading" ? "bg-sky-100/70 text-sky-700" : modelTestFeedback.kind === "success" ? "bg-emerald-100/70 text-emerald-700" : "bg-rose-100/70 text-rose-700"}`}>{modelTestFeedback.kind === "loading" && <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />}{modelTestFeedback.text}</p>}
               </div>
 
               <Button type="submit" className="h-11 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-700"><CheckCircle2 className="mr-2 size-4" />保存 {form.name || "AI"}</Button>
