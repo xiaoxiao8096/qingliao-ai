@@ -12,11 +12,15 @@ import {
   modelEndpoint,
   parseSseEventBlock,
   removeLocalConversation,
+  removeMessageAndAfter,
   renameLocalConversation,
   saveConversations,
   searchLocalConversations,
   setLocalConversationGroup,
   toggleLocalConversationPin,
+  setMessageFeedback,
+  truncateAfter,
+  updateMessageContent,
   type LocalConversation,
 } from "@/lib/localChat";
 import { useThemePreference } from "@/contexts/ThemeContext";
@@ -44,7 +48,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-type StreamMessage = Pick<ChatMessage, "role" | "content" | "attachments" | "createdAt">;
+type StreamMessage = { id: string; role: "user" | "assistant"; content: string; attachments?: Attachment[]; feedback?: "up" | "down"; createdAt?: number };
 
 type ContentPart =
   | { type: "text"; text: string }
@@ -124,10 +128,7 @@ export default function Home() {
     [conversationQuery, currentConversations, groupFilter],
   );
   const activeConversation = currentConversations.find(item => item.id === activeConversationId) ?? null;
-  const messages = useMemo<StreamMessage[]>(
-    () => activeConversation?.messages.map(message => ({ role: message.role, content: message.content, attachments: message.attachments, createdAt: message.createdAt })) ?? [],
-    [activeConversation],
-  );
+  const messages = useMemo<StreamMessage[]>(() => activeConversation?.messages.map(message => ({ id: message.id, role: message.role, content: message.content, attachments: message.attachments, feedback: message.feedback, createdAt: message.createdAt })) ?? [], [activeConversation]);
   const isConfigured = Boolean(activeAI?.baseUrl && activeAI?.apiKey && activeAI?.model);
 
   useEffect(() => {
@@ -210,101 +211,86 @@ export default function Home() {
     toast.success("已清空该分类下的会话标签。");
   }
 
-  async function sendMessage(payload: { text: string; attachments: Attachment[] }) {
-    const { text: content, attachments } = payload;
-    if (!activeAI || !isConfigured) {
-      toast.message("请先配置当前 AI 的模型 API。", {
-        action: { label: "管理 AI", onClick: () => setLocation("/ais") },
-      });
-      return;
-    }
-
-    let conversationId = activeConversationId;
-    let conversation = activeConversation;
-    if (!conversationId || !conversation) {
-      conversation = createConversation(activeAI.id);
-      conversationId = conversation.id;
-      updateStoredConversations(setConversations, previous => [conversation!, ...previous]);
-      setActiveConversationId(conversationId);
-    }
-
-    const userMessage = { id: createId(), role: "user" as const, content, createdAt: Date.now(), attachments: attachments.map(toPersistedAttachment) };
-    const assistantMessage = { id: createId(), role: "assistant" as const, content: "", createdAt: Date.now() };
-    const history = conversation.messages.map(message => ({ role: message.role, content: buildContent(message) }));
-
-    updateStoredConversations(
-      setConversations,
-      previous => appendLocalMessages(
-        previous,
-        conversationId,
-        [userMessage, assistantMessage],
-        conversation!.messages.length === 0 ? initialTitle(content) : undefined,
-      ),
-    );
+  /** 通用流式回复：向模型发送 [history + 最后一条用户消息]，把增量写入 assistantId。 */
+  async function streamReply(
+    conversationId: string,
+    history: { role: "user" | "assistant"; content: string | ContentPart[] }[],
+    finalUser: { content: string; attachments: Attachment[] },
+    assistantId: string,
+  ) {
+    if (!activeAI) return;
     setIsStreaming(true);
     const controller = new AbortController();
     abortRef.current = controller;
-
     try {
-      const response = await fetch(modelEndpoint(activeAI.baseUrl), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${activeAI.apiKey}`,
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: activeAI.model,
-          stream: true,
-          messages: [
-            { role: "system", content: buildSystemPrompt(activeAI, getUserProfile()) },
-            ...history,
-            { role: "user", content: buildContent({ content, attachments }) },
-          ],
-        }),
-      });
+      const response = await fetch(modelEndpoint(activeAI.baseUrl), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${activeAI.apiKey}` }, signal: controller.signal, body: JSON.stringify({ model: activeAI.model, stream: true, messages: [{ role: "system", content: buildSystemPrompt(activeAI, getUserProfile()) }, ...history, { role: "user", content: buildContent({ content: finalUser.content, attachments: finalUser.attachments }) }] }) });
+      if (!response.ok || !response.body) { const payload = await response.json().catch(() => null) as { error?: { message?: string } | string } | null; const reason = typeof payload?.error === "string" ? payload.error : payload?.error?.message; throw new Error(reason ?? "模型服务没有响应，请检查当前 AI 的配置。"); }
+      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
+      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const chunks = buffer.split(/\r?\n\r?\n/); buffer = chunks.pop() ?? ""; for (const chunk of chunks) { const parsed = parseSseEventBlock(chunk); if (!parsed) continue; if (parsed.error) throw new Error(parsed.error); if (parsed.delta) updateStoredConversations(setConversations, previous => appendAssistantDelta(previous, conversationId, assistantId, parsed.delta)); } }
+    } catch (error) { if ((error as Error)?.name === "AbortError") { toast.message("已停止生成。"); } else { updateStoredConversations(setConversations, previous => dropEmptyAssistantMessage(previous, conversationId, assistantId)); toast.error(error instanceof Error ? error.message : "发送失败，请检查 API 设置或网络。"); } } finally { abortRef.current = null; setIsStreaming(false); }
+  }
 
-      if (!response.ok || !response.body) {
-        const payload = await response.json().catch(() => null) as { error?: { message?: string } | string } | null;
-        const reason = typeof payload?.error === "string" ? payload.error : payload?.error?.message;
-        throw new Error(reason ?? "模型服务没有响应，请检查当前 AI 的配置。");
-      }
+  async function sendMessage(payload: { text: string; attachments: Attachment[]; editMessageId?: string }) {
+    const { text, attachments, editMessageId } = payload;
+    if (!activeAI || !isConfigured) { toast.message("请先配置当前 AI 的模型 API。", { action: { label: "管理 AI", onClick: () => setLocation("/ais") } }); return; }
+    if (!activeConversation) return;
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split(/\r?\n\r?\n/);
-        buffer = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const parsed = parseSseEventBlock(chunk);
-          if (!parsed) continue;
-          if (parsed.error) throw new Error(parsed.error);
-          if (parsed.delta) {
-            updateStoredConversations(
-              setConversations,
-              previous => appendAssistantDelta(previous, conversationId, assistantMessage.id, parsed.delta),
-            );
-          }
-        }
+    // 编辑并重发：更新原用户消息内容，丢弃其后所有回复，再重新生成。
+    if (editMessageId) {
+      const msgs = activeConversation.messages;
+      const idx = msgs.findIndex(m => m.id === editMessageId);
+      if (idx >= 0) {
+        const before = msgs.slice(0, idx).map(m => ({ role: m.role, content: buildContent(m) }));
+        updateStoredConversations(setConversations, previous => {
+          let next = updateMessageContent(previous, activeConversation!.id, editMessageId, text, attachments.map(toPersistedAttachment));
+          next = truncateAfter(next, activeConversation!.id, editMessageId);
+          return next;
+        });
+        const assistantMessage = { id: createId(), role: "assistant" as const, content: "", createdAt: Date.now() };
+        updateStoredConversations(setConversations, previous => appendLocalMessages(previous, activeConversation!.id, [assistantMessage]));
+        await streamReply(activeConversation.id, before, { content: text, attachments }, assistantMessage.id);
+        return;
       }
-    } catch (error) {
-      if ((error as Error)?.name === "AbortError") {
-        toast.message("已停止生成。");
-      } else {
-        updateStoredConversations(
-          setConversations,
-          previous => dropEmptyAssistantMessage(previous, conversationId, assistantMessage.id),
-        );
-        toast.error(error instanceof Error ? error.message : "发送失败，请检查 API 设置或网络。");
-      }
-    } finally {
-      abortRef.current = null;
-      setIsStreaming(false);
     }
+
+    let conversationId = activeConversationId; let conversation = activeConversation;
+    if (!conversationId || !conversation) { conversation = createConversation(activeAI.id); conversationId = conversation.id; updateStoredConversations(setConversations, previous => [conversation!, ...previous]); setActiveConversationId(conversationId); }
+    const userMessage = { id: createId(), role: "user" as const, content: text, createdAt: Date.now(), attachments: attachments.map(toPersistedAttachment) };
+    const assistantMessage = { id: createId(), role: "assistant" as const, content: "", createdAt: Date.now() };
+    const history = conversation.messages.map(message => ({ role: message.role, content: buildContent(message) }));
+    updateStoredConversations(setConversations, previous => appendLocalMessages(previous, conversationId, [userMessage, assistantMessage], conversation!.messages.length === 0 ? initialTitle(text) : undefined));
+    await streamReply(conversationId, history, { content: text, attachments }, assistantMessage.id);
+  }
+
+  function regenerate(assistantMessageId: string) {
+    if (!activeAI || !isConfigured || !activeConversation) return;
+    const msgs = activeConversation.messages;
+    const idx = msgs.findIndex(m => m.id === assistantMessageId);
+    if (idx <= 0) return; // 需要其前存在一条用户消息
+    let userIdx = idx - 1;
+    while (userIdx >= 0 && msgs[userIdx].role !== "user") userIdx--;
+    if (userIdx < 0) return;
+    const userMessage = msgs[userIdx];
+    const before = msgs.slice(0, userIdx).map(m => ({ role: m.role, content: buildContent(m) }));
+    const assistantMessage = { id: createId(), role: "assistant" as const, content: "", createdAt: Date.now() };
+    updateStoredConversations(setConversations, previous => {
+      let next = truncateAfter(previous, activeConversation!.id, userMessage.id);
+      next = appendLocalMessages(next, activeConversation!.id, [assistantMessage]);
+      return next;
+    });
+    streamReply(activeConversation.id, before, { content: userMessage.content, attachments: userMessage.attachments ?? [] }, assistantMessage.id);
+  }
+
+  function deleteMessage(messageId: string) {
+    if (!activeConversation) return;
+    updateStoredConversations(setConversations, previous => removeMessageAndAfter(previous, activeConversation!.id, messageId));
+    toast.success("已删除该消息及其后的回复。");
+  }
+
+  function setFeedback(messageId: string, value: "up" | "down") {
+    if (!activeConversation) return;
+    const current = activeConversation.messages.find(m => m.id === messageId)?.feedback;
+    updateStoredConversations(setConversations, previous => setMessageFeedback(previous, activeConversation!.id, messageId, current === value ? undefined : value));
   }
 
   function stopGeneration() {
@@ -441,6 +427,9 @@ export default function Home() {
               messages={messages}
               onSendMessage={sendMessage}
               onStop={stopGeneration}
+              onRegenerate={regenerate}
+              onDeleteMessage={deleteMessage}
+              onFeedback={setFeedback}
               isLoading={isStreaming}
               placeholder={isConfigured ? `向 ${activeAI?.name} 发送消息` : "请先前往管理 AI 配置模型"}
               emptyStateMessage={isConfigured ? `开始和 ${activeAI?.name} 聊聊` : "先完成当前 AI 的模型设置，再开始对话"}

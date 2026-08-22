@@ -13,6 +13,8 @@ export type LocalMessage = {
   createdAt: number;
   /** 用户消息可携带的附件（图片 / 视频 / 文档等） */
   attachments?: Attachment[];
+  /** 用户对助手消息的反馈（仅本地记录，不上传） */
+  feedback?: "up" | "down";
 };
 
 export type LocalConversation = {
@@ -160,6 +162,59 @@ export function dropEmptyAssistantMessage(conversations: LocalConversation[], co
     ...item,
     messages: item.messages.filter(message => message.id !== messageId || Boolean(message.content)),
   } : item);
+}
+
+/** 仅保留到 messageId（含）为止的消息，删除其后的全部内容。用于「重新生成 / 编辑后重发」。 */
+export function truncateAfter(conversations: LocalConversation[], conversationId: string, messageId: string) {
+  return conversations.map(item => {
+    if (item.id !== conversationId) return item;
+    const index = item.messages.findIndex(message => message.id === messageId);
+    if (index === -1) return item;
+    return { ...item, messages: item.messages.slice(0, index + 1), updatedAt: Date.now() };
+  });
+}
+
+/** 修改某条消息的正文与附件（用于编辑用户消息）。 */
+export function updateMessageContent(
+  conversations: LocalConversation[],
+  conversationId: string,
+  messageId: string,
+  content: string,
+  attachments?: Attachment[],
+) {
+  return conversations.map(item => {
+    if (item.id !== conversationId) return item;
+    return {
+      ...item,
+      updatedAt: Date.now(),
+      messages: item.messages.map(message =>
+        message.id === messageId ? { ...message, content, ...(attachments ? { attachments } : {}) } : message,
+      ),
+    };
+  });
+}
+
+/** 删除某条消息及其之后的全部内容（保持对话结构合法）。 */
+export function removeMessageAndAfter(conversations: LocalConversation[], conversationId: string, messageId: string) {
+  return conversations.map(item => {
+    if (item.id !== conversationId) return item;
+    const index = item.messages.findIndex(message => message.id === messageId);
+    if (index === -1) return item;
+    return { ...item, messages: item.messages.slice(0, index), updatedAt: Date.now() };
+  });
+}
+
+/** 记录用户对某条助手消息的赞 / 踩（仅本地）。 */
+export function setMessageFeedback(
+  conversations: LocalConversation[],
+  conversationId: string,
+  messageId: string,
+  feedback: "up" | "down" | undefined,
+) {
+  return conversations.map(item => {
+    if (item.id !== conversationId) return item;
+    return { ...item, messages: item.messages.map(message => message.id === messageId ? { ...message, feedback } : message) };
+  });
 }
 
 export function modelEndpoint(baseUrl: string) {

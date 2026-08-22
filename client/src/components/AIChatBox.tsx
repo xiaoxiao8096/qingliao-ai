@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
 import { getLocalDraft, saveLocalDraft } from "@/lib/localChat";
-import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff } from "lucide-react";
+import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff, RefreshCw, ThumbsUp, ThumbsDown, Pencil, Trash2, Check } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Streamdown } from "streamdown";
 import { toast } from "sonner";
@@ -14,16 +14,20 @@ import { toast } from "sonner";
  * `attachments` 仅用户消息可能携带。`createdAt` 用于显示发送时间。
  */
 export type Message = {
+  id: string;
   role: "system" | "user" | "assistant";
   content: string;
   attachments?: Attachment[];
   createdAt?: number;
+  /** 用户对助手消息的反馈（仅本地） */
+  feedback?: "up" | "down";
 };
 
-/** 发送给上层（页面）的载荷：文本 + 附件 */
+/** 发送给上层（页面）的载荷：文本 + 附件。编辑重发时携带 editMessageId。 */
 export type SendPayload = {
   text: string;
   attachments: Attachment[];
+  editMessageId?: string;
 };
 
 export type AIChatBoxProps = {
@@ -32,6 +36,12 @@ export type AIChatBoxProps = {
   onSendMessage: (payload: SendPayload) => void;
   /** 流式生成中点「停止」时回调（由上层 abort 请求） */
   onStop?: () => void;
+  /** 点击「重新生成」某条助手消息时回调 */
+  onRegenerate?: (messageId: string) => void;
+  /** 点击「删除」某条消息时回调 */
+  onDeleteMessage?: (messageId: string) => void;
+  /** 用户对某条助手消息点赞 / 踩 */
+  onFeedback?: (messageId: string, value: "up" | "down") => void;
   isLoading?: boolean;
   placeholder?: string;
   className?: string;
@@ -82,6 +92,9 @@ export function AIChatBox({
   messages,
   onSendMessage,
   onStop,
+  onRegenerate,
+  onDeleteMessage,
+  onFeedback,
   isLoading = false,
   placeholder = "Type your message...",
   className,
@@ -107,6 +120,8 @@ export function AIChatBox({
   const stickToBottomRef = useRef(true);
   // 是否显示“回到最新”悬浮按钮（用户上翻时为真）。
   const [showJump, setShowJump] = useState(false);
+  // 正在编辑并重发的用户消息 id（非空时发送按钮变为“保存并重发”）。
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // 语音输入（Web Speech API）。录音时把识别结果实时写回输入框。
   const [isRecording, setIsRecording] = useState(false);
@@ -254,10 +269,11 @@ export function AIChatBox({
 
   const send = (text: string, withAttachments: Attachment[]) => {
     if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch { /* noop */ } recognitionRef.current = null; setIsRecording(false); }
-    onSendMessage({ text: text.trim(), attachments: withAttachments });
+    onSendMessage({ text: text.trim(), attachments: withAttachments, editMessageId: editingId ?? undefined });
     setInput("");
     if (draftKey) saveLocalDraft(draftKey, "");
     setAttachments([]);
+    setEditingId(null);
     stickToBottomRef.current = true;
     scrollToBottom("auto");
     adjustTextarea();
@@ -323,16 +339,26 @@ export function AIChatBox({
                 const isLastMessage = index === displayMessages.length - 1;
                 const shouldApplyMinHeight =
                   isLastMessage && !isLoading && minHeightForLastMessage > 0;
+                const isUser = message.role === "user";
+                const isAssistant = message.role === "assistant";
+
+                const startEdit = () => {
+                  if (!isUser) return;
+                  setInput(message.content);
+                  setEditingId(message.id);
+                  adjustTextarea();
+                  textareaRef.current?.focus();
+                };
+
+                const actionBtn =
+                  "grid size-7 place-items-center rounded-md text-slate-400 transition-colors hover:bg-black/5 hover:text-slate-700";
 
                 return (
                   <div
-                    key={index}
+                    key={message.id}
                     className={cn(
-                      "flex gap-3",
-                      message.role === "assistant"
-                        ? `chat-message-enter chat-message-enter-${((message.createdAt ?? index) % 3) + 1}`
-                        : "chat-message-sent",
-                      message.role === "user"
+                      "group/msg flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300",
+                      isUser
                         ? "justify-end items-start"
                         : "justify-start items-start"
                     )}
@@ -342,56 +368,77 @@ export function AIChatBox({
                         : undefined
                     }
                   >
-                    {message.role === "assistant" && (
+                    {isAssistant && (
                       <div title={assistantName} className="size-8 shrink-0 mt-1 overflow-hidden rounded-full bg-primary/10 flex items-center justify-center">
                         {assistantAvatar ? <img src={assistantAvatar} alt="" className="size-full object-cover" /> : <Sparkles className="size-4 text-primary" />}
                       </div>
                     )}
 
-                    <div
-                      className={cn(
-                        "group relative max-w-[80%] rounded-lg px-4 py-2.5",
-                        message.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-foreground"
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => copyMessage(message.content)}
-                        className="absolute right-1 top-1 hidden rounded-md p-1 text-slate-400 hover:bg-black/10 hover:text-slate-700 group-hover:block"
-                        aria-label="复制消息"
-                        title="复制消息"
+                    <div className={cn("flex min-w-0 flex-col", isUser ? "items-end" : "items-start")}>
+                      <div
+                        className={cn(
+                          "group relative max-w-[80%] rounded-lg px-4 py-2.5",
+                          isUser
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-foreground"
+                        )}
                       >
-                        <Copy className="size-3" />
-                      </button>
-
-                      {message.role === "user" && message.attachments && message.attachments.length > 0 && (
-                        <div className="mb-2 flex flex-wrap gap-2">
-                          {message.attachments.map((att) => (
-                            <div key={att.id} className="flex items-center gap-2 rounded-lg bg-black/10 px-2 py-1.5">
-                              <AttachmentThumb attachment={att} />
-                              <div className="min-w-0 pr-1">
-                                <p className="max-w-[140px] truncate text-xs font-medium">{att.name}</p>
-                                <p className="text-[10px] opacity-70">{formatSize(att.size)}</p>
+                        {isUser && message.attachments && message.attachments.length > 0 && (
+                          <div className="mb-2 flex flex-wrap gap-2">
+                            {message.attachments.map((att) => (
+                              <div key={att.id} className="flex items-center gap-2 rounded-lg bg-black/10 px-2 py-1.5">
+                                <AttachmentThumb attachment={att} />
+                                <div className="min-w-0 pr-1">
+                                  <p className="max-w-[140px] truncate text-xs font-medium">{att.name}</p>
+                                  <p className="text-[10px] opacity-70">{formatSize(att.size)}</p>
+                                </div>
                               </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {message.role === "assistant" ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none">
-                          <Streamdown>{message.content}</Streamdown>
-                        </div>
-                      ) : (
-                        <p className="whitespace-pre-wrap text-sm">{message.content}</p>
-                      )}
-                      {message.createdAt ? (
-                        <div className="mt-1 text-right text-[10px] opacity-60">{formatTime(message.createdAt)}</div>
-                      ) : null}
+                            ))}
+                          </div>
+                        )}
+                        {isAssistant ? (
+                          <div className="prose prose-sm max-w-none break-words">
+                            <Streamdown mode="streaming" shikiTheme={["github-light", "github-dark"]} controls={{ code: true }}>{message.content}</Streamdown>
+                          </div>
+                        ) : (
+                          <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
+                        )}
+                        {message.createdAt ? (
+                          <div className="mt-1 text-right text-[10px] opacity-60">{formatTime(message.createdAt)}</div>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100">
+                        {isAssistant && (
+                          <button type="button" onClick={() => onRegenerate?.(message.id)} className={actionBtn} aria-label="重新生成" title="重新生成">
+                            <RefreshCw className="size-3.5" />
+                          </button>
+                        )}
+                        {isUser && (
+                          <button type="button" onClick={startEdit} className={actionBtn} aria-label="编辑并重发" title="编辑并重发">
+                            <Pencil className="size-3.5" />
+                          </button>
+                        )}
+                        <button type="button" onClick={() => copyMessage(message.content)} className={actionBtn} aria-label="复制" title="复制">
+                          <Copy className="size-3.5" />
+                        </button>
+                        {isAssistant && (
+                          <>
+                            <button type="button" onClick={() => onFeedback?.(message.id, "up")} className={cn(actionBtn, message.feedback === "up" && "text-emerald-500 hover:text-emerald-600")} aria-label="赞" title="赞">
+                              <ThumbsUp className="size-3.5" />
+                            </button>
+                            <button type="button" onClick={() => onFeedback?.(message.id, "down")} className={cn(actionBtn, message.feedback === "down" && "text-rose-500 hover:text-rose-600")} aria-label="踩" title="踩">
+                              <ThumbsDown className="size-3.5" />
+                            </button>
+                          </>
+                        )}
+                        <button type="button" onClick={() => onDeleteMessage?.(message.id)} className={cn(actionBtn, "hover:bg-rose-50 hover:text-rose-500")} aria-label="删除" title="删除">
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
                     </div>
 
-                    {message.role === "user" && (
+                    {isUser && (
                       <div title={userName} className="size-8 shrink-0 mt-1 overflow-hidden rounded-full bg-secondary flex items-center justify-center">
                         {userAvatar ? <img src={userAvatar} alt="" className="size-full object-cover" /> : <User className="size-4 text-secondary-foreground" />}
                       </div>
@@ -442,6 +489,12 @@ export function AIChatBox({
         onSubmit={handleSubmit}
         className="flex flex-col gap-2 p-4 border-t bg-background/50"
       >
+        {editingId && (
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <span className="flex items-center gap-1.5"><Pencil className="size-3.5" /> 正在编辑这条消息，发送后将重新生成后续回复。</span>
+            <button type="button" onClick={() => setEditingId(null)} className="shrink-0 rounded-md px-2 py-0.5 font-medium hover:bg-amber-100">取消</button>
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {attachments.map((att) => (
@@ -540,8 +593,10 @@ export function AIChatBox({
                 size="icon"
                 disabled={!canSend}
                 className="shrink-0 h-[38px] w-[38px]"
+                aria-label={editingId ? "保存并重发" : "发送"}
+                title={editingId ? "保存并重发" : "发送"}
               >
-                <Send className="size-4" />
+                {editingId ? <Check className="size-4" /> : <Send className="size-4" />}
               </Button>
             </>
           )}
