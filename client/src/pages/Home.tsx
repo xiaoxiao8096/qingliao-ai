@@ -106,6 +106,8 @@ export default function Home() {
   const [groupingId, setGroupingId] = useState<string | null>(null);
   const [groupValue, setGroupValue] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
+  const [managingGroup, setManagingGroup] = useState<string | null>(null);
+  const [groupManagerValue, setGroupManagerValue] = useState("");
   const { preference, setPreference } = useThemePreference();
 
   const userProfile = getUserProfile();
@@ -190,6 +192,22 @@ export default function Home() {
     setGroupingId(null);
     setGroupValue("");
     toast.success("会话分类已更新。");
+  }
+
+  function renameGroup(oldGroup: string) {
+    const nextGroup = groupManagerValue.trim().slice(0, 32);
+    if (!nextGroup) return;
+    updateStoredConversations(setConversations, previous => previous.map(item => item.group === oldGroup ? { ...item, group: nextGroup } : item));
+    if (groupFilter === oldGroup) setGroupFilter(nextGroup);
+    setManagingGroup(null);
+    toast.success("分类已重命名。");
+  }
+
+  function clearGroup(group: string) {
+    updateStoredConversations(setConversations, previous => previous.map(item => item.group === group ? { ...item, group: undefined } : item));
+    if (groupFilter === group) setGroupFilter("all");
+    setManagingGroup(null);
+    toast.success("已清空该分类下的会话标签。");
   }
 
   async function sendMessage(payload: { text: string; attachments: Attachment[] }) {
@@ -341,6 +359,7 @@ export default function Home() {
         </div>
       )}
       {currentConversations.length > 0 && <select value={groupFilter} onChange={event => setGroupFilter(event.target.value)} className="mb-3 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-600" aria-label="按分类筛选会话"><option value="all">全部分类</option><option value="ungrouped">未分类</option>{conversationGroups.map(group => <option key={group} value={group}>{group}</option>)}</select>}
+      {conversationGroups.length > 0 && <div className="mb-3 space-y-1 px-1"><p className="text-[10px] font-bold tracking-[0.12em] text-slate-400">管理分类</p>{conversationGroups.map(group => managingGroup === group ? <form key={group} onSubmit={event => { event.preventDefault(); renameGroup(group); }} className="flex gap-1"><input autoFocus value={groupManagerValue} onChange={event => setGroupManagerValue(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs" /><button className="rounded-lg bg-sky-100 px-2 text-xs text-sky-700">改名</button><button type="button" onClick={() => clearGroup(group)} className="rounded-lg px-2 text-xs text-rose-500">清空</button></form> : <button key={group} onClick={() => { setManagingGroup(group); setGroupManagerValue(group); }} className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-xs text-slate-500 hover:bg-white"><span className="truncate">{group}</span><Pencil className="size-3" /></button>)}</div>}
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1" aria-label="会话历史">
         {currentConversations.length === 0 ? (
