@@ -15,8 +15,11 @@ import {
   renameLocalConversation,
   saveConversations,
   searchLocalConversations,
+  setLocalConversationGroup,
+  toggleLocalConversationPin,
   type LocalConversation,
 } from "@/lib/localChat";
+import { useThemePreference } from "@/contexts/ThemeContext";
 import { toPersistedAttachment, type Attachment } from "@/lib/attachments";
 import { getActiveAIId, getAIProfiles, getUserProfile, setActiveAIId, type LocalAIProfile } from "@/lib/localProfiles";
 import {
@@ -25,11 +28,16 @@ import {
   CircleHelp,
   Menu,
   MessageSquarePlus,
+  Moon,
   Pencil,
+  Pin,
   Search,
   Settings,
+  Sun,
   Trash2,
   UserRound,
+  Monitor,
+  FolderPlus,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -95,6 +103,10 @@ export default function Home() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [conversationQuery, setConversationQuery] = useState("");
+  const [groupingId, setGroupingId] = useState<string | null>(null);
+  const [groupValue, setGroupValue] = useState("");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const { preference, setPreference } = useThemePreference();
 
   const userProfile = getUserProfile();
   const abortRef = useRef<AbortController | null>(null);
@@ -104,9 +116,10 @@ export default function Home() {
     () => activeAI ? conversationsForAI(conversations, activeAI.id) : [],
     [activeAI, conversations],
   );
+  const conversationGroups = useMemo(() => Array.from(new Set(currentConversations.map(item => item.group).filter((group): group is string => Boolean(group)))).sort(), [currentConversations]);
   const matchingConversations = useMemo(
-    () => searchLocalConversations(currentConversations, conversationQuery),
-    [conversationQuery, currentConversations],
+    () => searchLocalConversations(currentConversations, conversationQuery).filter(item => groupFilter === "all" || (groupFilter === "ungrouped" ? !item.group : item.group === groupFilter)),
+    [conversationQuery, currentConversations, groupFilter],
   );
   const activeConversation = currentConversations.find(item => item.id === activeConversationId) ?? null;
   const messages = useMemo<StreamMessage[]>(
@@ -166,6 +179,17 @@ export default function Home() {
     updateStoredConversations(setConversations, previous => removeLocalConversation(previous, id));
     if (activeConversationId === id) setActiveConversationId(next[0]?.id ?? null);
     toast.success("会话已删除。");
+  }
+
+  function togglePin(id: string) {
+    updateStoredConversations(setConversations, previous => toggleLocalConversationPin(previous, id));
+  }
+
+  function saveGroup(id: string) {
+    updateStoredConversations(setConversations, previous => setLocalConversationGroup(previous, id, groupValue));
+    setGroupingId(null);
+    setGroupValue("");
+    toast.success("会话分类已更新。");
   }
 
   async function sendMessage(payload: { text: string; attachments: Attachment[] }) {
@@ -316,6 +340,7 @@ export default function Home() {
           )}
         </div>
       )}
+      {currentConversations.length > 0 && <select value={groupFilter} onChange={event => setGroupFilter(event.target.value)} className="mb-3 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-600" aria-label="按分类筛选会话"><option value="all">全部分类</option><option value="ungrouped">未分类</option>{conversationGroups.map(group => <option key={group} value={group}>{group}</option>)}</select>}
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1" aria-label="会话历史">
         {currentConversations.length === 0 ? (
@@ -351,9 +376,13 @@ export default function Home() {
                 <div className="flex items-center gap-1 p-1.5">
                   <button onClick={() => { setActiveConversationId(conversation.id); setDrawerOpen(false); }} className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm text-slate-700">{conversation.title}</button>
                   <div className="flex items-center gap-0.5">
+                    <button onClick={() => togglePin(conversation.id)} className={`grid size-7 place-items-center rounded-lg ${conversation.pinned ? "bg-amber-50 text-amber-600" : "text-slate-400 hover:bg-slate-100"}`} aria-label={conversation.pinned ? "取消置顶" : "置顶会话"}><Pin className={`size-3 ${conversation.pinned ? "fill-current" : ""}`} /></button>
+                    <button onClick={() => { setGroupingId(conversation.id); setGroupValue(conversation.group ?? ""); }} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="分类会话"><FolderPlus className="size-3" /></button>
                     <button onClick={() => beginRename(conversation)} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="重命名会话"><Pencil className="size-3" /></button>
                     <button onClick={() => removeConversation(conversation.id)} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label="删除会话"><Trash2 className="size-3" /></button>
                   </div>
+                  {conversation.group && <span className="mb-1 ml-3 inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700">{conversation.group}</span>}
+                  {groupingId === conversation.id && <form onSubmit={event => { event.preventDefault(); saveGroup(conversation.id); }} className="flex gap-1 p-1.5"><input autoFocus value={groupValue} onChange={event => setGroupValue(event.target.value)} placeholder="例如：工作、学习" maxLength={32} className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none" /><button type="submit" className="rounded-lg bg-sky-100 px-2 text-xs text-sky-700">保存</button><button type="button" onClick={() => setGroupingId(null)} className="rounded-lg px-2 text-xs text-slate-400">取消</button></form>}
                 </div>
               )}
             </div>
@@ -362,6 +391,7 @@ export default function Home() {
       </nav>
 
       <div className="mt-4 border-t border-slate-200 pt-3">
+        <div className="mb-2 grid grid-cols-3 gap-1 rounded-xl bg-white p-1 text-slate-500 shadow-sm"><button onClick={() => setPreference("light")} className={`grid h-8 place-items-center rounded-lg ${preference === "light" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`} aria-label="浅色模式"><Sun className="size-3.5" /></button><button onClick={() => setPreference("dark")} className={`grid h-8 place-items-center rounded-lg ${preference === "dark" ? "bg-slate-800 text-white" : "hover:bg-slate-100"}`} aria-label="深色模式"><Moon className="size-3.5" /></button><button onClick={() => setPreference("system")} className={`grid h-8 place-items-center rounded-lg ${preference === "system" ? "bg-slate-100 text-slate-700" : "hover:bg-slate-100"}`} aria-label="跟随系统主题"><Monitor className="size-3.5" /></button></div>
         <button onClick={() => setLocation("/ais")} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white"><Settings className="size-4 text-slate-400" /> 管理我的 AI <ChevronRight className="ml-auto size-4 text-slate-300" /></button>
         <button onClick={() => setLocation("/profile")} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white">
           <span className="grid size-6 place-items-center overflow-hidden rounded-full bg-[#f7dfe7] text-[10px] font-bold text-[#9b5267]">{userProfile.avatar ? <img src={userProfile.avatar} alt="" className="size-full object-cover" /> : userProfile.name.slice(0, 1)}</span>

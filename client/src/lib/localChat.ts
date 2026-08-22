@@ -22,6 +22,8 @@ export type LocalConversation = {
   createdAt: number;
   updatedAt: number;
   messages: LocalMessage[];
+  pinned?: boolean;
+  group?: string;
 };
 
 const SETTINGS_KEY = "qingliao.personal.settings.v1";
@@ -72,7 +74,20 @@ export function getConversations(): LocalConversation[] {
 }
 
 export function conversationsForAI(conversations: LocalConversation[], aiProfileId: string) {
-  return conversations.filter(conversation => conversation.aiProfileId === aiProfileId);
+  return orderLocalConversations(conversations.filter(conversation => conversation.aiProfileId === aiProfileId));
+}
+
+export function orderLocalConversations(conversations: LocalConversation[]) {
+  return [...conversations].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt);
+}
+
+export function toggleLocalConversationPin(conversations: LocalConversation[], id: string) {
+  return conversations.map(item => item.id === id ? { ...item, pinned: !item.pinned, updatedAt: Date.now() } : item);
+}
+
+export function setLocalConversationGroup(conversations: LocalConversation[], id: string, group: string) {
+  const normalized = group.trim().slice(0, 32);
+  return conversations.map(item => item.id === id ? { ...item, group: normalized || undefined, updatedAt: Date.now() } : item);
 }
 
 export function searchLocalConversations(conversations: LocalConversation[], query: string) {

@@ -12,6 +12,7 @@ import {
   getSettings,
   initialTitle,
   modelEndpoint,
+  orderLocalConversations,
   parseSseEventBlock,
   removeLocalConversation,
   renameLocalConversation,
@@ -19,6 +20,8 @@ import {
   saveLocalDraft,
   saveSettings,
   searchLocalConversations,
+  setLocalConversationGroup,
+  toggleLocalConversationPin,
 } from "./localChat";
 
 function memoryStorage() {
@@ -99,6 +102,15 @@ describe("personal local chat storage", () => {
     expect(searchLocalConversations([work, notes], "书单").map(item => item.id)).toEqual(["notes"]);
     expect(searchLocalConversations([work, notes], "不存在")).toEqual([]);
     expect(searchLocalConversations([work, notes], "   ")).toHaveLength(2);
+  });
+
+  it("pins and categorizes conversations locally while keeping pinned items first", () => {
+    const first = { ...createConversation(), id: "first", title: "工作" };
+    const second = { ...createConversation(), id: "second", title: "生活", updatedAt: first.updatedAt + 1 };
+    const grouped = setLocalConversationGroup([first, second], "first", "项目 A");
+    const pinned = toggleLocalConversationPin(grouped, "first");
+    expect(pinned.find(item => item.id === "first")?.group).toBe("项目 A");
+    expect(orderLocalConversations(pinned).map(item => item.id)).toEqual(["first", "second"]);
   });
 
   it("creates compatible model endpoints and concise first-message titles", () => {

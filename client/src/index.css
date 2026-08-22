@@ -52,6 +52,31 @@
   --ring: oklch(0.62 0.075 230);
 }
 
+.dark {
+  --background: oklch(0.16 0.012 250);
+  --foreground: oklch(0.92 0.008 240);
+  --card: oklch(0.21 0.014 250);
+  --card-foreground: oklch(0.92 0.008 240);
+  --popover: oklch(0.21 0.014 250);
+  --popover-foreground: oklch(0.92 0.008 240);
+  --muted: oklch(0.25 0.014 250);
+  --muted-foreground: oklch(0.72 0.016 240);
+  --border: oklch(0.34 0.014 250);
+  --input: oklch(0.34 0.014 250);
+}
+
+.dark body,
+.dark [class*="bg-[#f3f6f8]"] { background-color: oklch(0.16 0.012 250) !important; }
+.dark [class*="bg-white"],
+.dark [class*="bg-[#f8fafb]"] { background-color: oklch(0.21 0.014 250) !important; }
+.dark [class*="text-slate-9"],
+.dark [class*="text-slate-8"],
+.dark [class*="text-slate-7"],
+.dark [class*="text-slate-6"] { color: oklch(0.91 0.01 245) !important; }
+.dark [class*="text-slate-5"],
+.dark [class*="text-slate-4"] { color: oklch(0.72 0.016 240) !important; }
+.dark [class*="border-slate-2"] { border-color: oklch(0.34 0.014 250) !important; }
+
 @layer base {
   * { @apply border-border outline-ring/50; }
   html { font-family: Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif; }
