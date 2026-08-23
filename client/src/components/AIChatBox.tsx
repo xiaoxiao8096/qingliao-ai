@@ -398,7 +398,7 @@ export function AIChatBox({
                         )}
                         {isAssistant ? (
                           <div className="prose prose-sm max-w-none break-words">
-                            <Streamdown mode="streaming" shikiTheme={["github-light", "github-dark"]} controls={{ code: true }}>{message.content}</Streamdown>
+                            <Streamdown isAnimating={isLoading} shikiTheme={["github-light", "github-dark"]} controls={{ code: true }}>{message.content}</Streamdown>
                           </div>
                         ) : (
                           <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
