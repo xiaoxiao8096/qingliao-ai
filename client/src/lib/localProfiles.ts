@@ -5,6 +5,8 @@ export type AIAppearance = {
   fontScale: "small" | "medium" | "large";
   bubbleRadius: "soft" | "rounded" | "pill";
   chatTexture: "plain" | "dots" | "grid" | "paper";
+  /** 当前 AI 的本机聊天背景，使用压缩后的 data URL 保存。 */
+  backgroundImage?: string;
 };
 
 export type AppearancePreset = {
@@ -17,6 +19,14 @@ export type AppearancePreset = {
 export const DEFAULT_AI_APPEARANCE: AIAppearance = {
   accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain",
 };
+
+export const BUILTIN_AI_THEMES = [
+  { id: "clear-sky", name: "清透蓝", note: "轻盈、清爽", appearance: { accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain" } },
+  { id: "violet-night", name: "暮光紫", note: "专注、沉静", appearance: { accent: "violet", fontScale: "medium", bubbleRadius: "pill", chatTexture: "grid" } },
+  { id: "berry-note", name: "莓果粉", note: "柔和、亲近", appearance: { accent: "rose", fontScale: "large", bubbleRadius: "rounded", chatTexture: "dots" } },
+  { id: "forest-paper", name: "森林纸", note: "自然、耐读", appearance: { accent: "emerald", fontScale: "medium", bubbleRadius: "soft", chatTexture: "paper" } },
+  { id: "warm-amber", name: "暖阳黄", note: "明亮、有温度", appearance: { accent: "amber", fontScale: "large", bubbleRadius: "pill", chatTexture: "plain" } },
+] as const satisfies ReadonlyArray<{ id: string; name: string; note: string; appearance: AIAppearance }>;
 
 export type LocalAIProfile = LocalModelSettings & {
   id: string;
@@ -175,6 +185,38 @@ export async function imageFileToDataUrl(file: File): Promise<string> {
     const height = image.height * scale;
     context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
     return canvas.toDataURL("image/jpeg", 0.82);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+export async function backgroundImageFileToDataUrl(file: File): Promise<string> {
+  if (!/^(image\/png|image\/jpeg|image\/webp)$/.test(file.type)) {
+    throw new Error("请选择 PNG、JPG 或 WebP 图片作为背景。");
+  }
+  if (file.size > 4 * 1024 * 1024) {
+    throw new Error("背景图片不能超过 4MB。");
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const node = new Image();
+      node.onload = () => resolve(node);
+      node.onerror = () => reject(new Error("背景图片读取失败，请换一张图片。"));
+      node.src = objectUrl;
+    });
+    const maxSide = 1280;
+    const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("当前浏览器不支持背景图片处理。");
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.76);
   } finally {
     URL.revokeObjectURL(objectUrl);
   }

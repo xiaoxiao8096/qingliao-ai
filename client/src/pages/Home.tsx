@@ -25,7 +25,7 @@ import {
 } from "@/lib/localChat";
 import { useThemePreference } from "@/contexts/ThemeContext";
 import { toPersistedAttachment, type Attachment } from "@/lib/attachments";
-import { DEFAULT_AI_APPEARANCE, getActiveAIId, getAIProfiles, getUserProfile, saveAIProfiles, setActiveAIId, type AIAppearance, type LocalAIProfile } from "@/lib/localProfiles";
+import { backgroundImageFileToDataUrl, BUILTIN_AI_THEMES, DEFAULT_AI_APPEARANCE, getActiveAIId, getAIProfiles, getUserProfile, saveAIProfiles, setActiveAIId, type AIAppearance, type LocalAIProfile } from "@/lib/localProfiles";
 import {
   Check,
   ChevronRight,
@@ -46,7 +46,7 @@ import {
   Type,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -126,8 +126,12 @@ export default function Home() {
   const userProfile = getUserProfile();
   const abortRef = useRef<AbortController | null>(null);
   const drawerCloseTimer = useRef<number | null>(null);
+  const backgroundInputRef = useRef<HTMLInputElement>(null);
+  const [isSavingBackground, setIsSavingBackground] = useState(false);
   useEffect(() => () => { abortRef.current?.abort(); if (drawerCloseTimer.current !== null) window.clearTimeout(drawerCloseTimer.current); }, []);
   const activeAI = profiles.find(profile => profile.id === activeAIId) ?? profiles[0];
+
+  const currentAppearance = { ...DEFAULT_AI_APPEARANCE, ...activeAI?.appearance };
 
   useEffect(() => {
     const appearance = { ...DEFAULT_AI_APPEARANCE, ...activeAI?.appearance };
@@ -135,7 +139,7 @@ export default function Home() {
     setFontScale(appearance.fontScale);
     setBubbleRadius(appearance.bubbleRadius);
     setChatTexture(appearance.chatTexture);
-  }, [activeAI?.id]);
+  }, [activeAI?.id, activeAI?.appearance]);
 
   function updateActiveAppearance(patch: Partial<AIAppearance>) {
     if (!activeAI) return;
@@ -147,6 +151,22 @@ export default function Home() {
     if (patch.fontScale) setFontScale(patch.fontScale);
     if (patch.bubbleRadius) setBubbleRadius(patch.bubbleRadius);
     if (patch.chatTexture) setChatTexture(patch.chatTexture);
+  }
+
+  async function selectBackground(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !activeAI) return;
+    setIsSavingBackground(true);
+    try {
+      const backgroundImage = await backgroundImageFileToDataUrl(file);
+      updateActiveAppearance({ backgroundImage });
+      toast.success("自定义聊天背景已保存到当前 AI。");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "背景图片保存失败。");
+    } finally {
+      setIsSavingBackground(false);
+    }
   }
   const currentConversations = useMemo(
     () => activeAI ? conversationsForAI(conversations, activeAI.id) : [],
@@ -345,7 +365,7 @@ export default function Home() {
   }
 
   const conversationPanel = (
-    <aside className="mobile-drawer-panel relative z-10 flex h-full w-[min(85vw,320px)] flex-col bg-[#f8fafb] px-3 pb-4 pt-4 shadow-[12px_0_35px_rgba(36,54,69,0.08)] lg:w-[300px] lg:shadow-none">
+    <aside className="mobile-drawer-panel relative z-10 flex h-full w-[min(85vw,320px)] flex-col overflow-y-auto bg-[#f8fafb] px-3 pb-4 pt-4 shadow-[12px_0_35px_rgba(36,54,69,0.08)] lg:w-[300px] lg:shadow-none">
       <div className="flex items-center justify-between px-2 pb-4">
         <button onClick={() => setLocation("/")} className="flex items-center gap-2 text-left" aria-label="回到聊天主页">
           <span className="grid size-8 place-items-center rounded-xl bg-[#dceefa] text-[#417698]"><CircleHelp className="size-4" /></span>
@@ -447,10 +467,14 @@ export default function Home() {
         <div className="mb-2 rounded-xl bg-white p-2 shadow-sm">
           <div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span className="flex items-center gap-1"><Palette className="size-3" />{activeAI?.name ?? "当前 AI"} 的主题</span><button onClick={() => updateActiveAppearance(DEFAULT_AI_APPEARANCE)} className="text-sky-700 hover:underline">恢复默认</button></div>
           <div className="flex items-center justify-between gap-1">{(["sky", "violet", "rose", "emerald", "amber"] as const).map(color => <button key={color} onClick={() => updateActiveAppearance({ accent: color })} className={`grid size-6 place-items-center rounded-full ${accent === color ? "ring-2 ring-slate-500 ring-offset-2" : ""}`} aria-label={`选择${color}主题色`}><span className={`size-4 rounded-full bg-[var(--accent-${color})]`} /></button>)}</div>
-          <div className="mt-2 rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览"><div className="flex items-center justify-between"><span>当前配色预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/65 px-2 py-1">这是一条消息气泡</span></div>
+          <div className="mt-2 overflow-hidden rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览" style={currentAppearance.backgroundImage ? { backgroundImage: `linear-gradient(rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.62)), url("${currentAppearance.backgroundImage}")`, backgroundPosition: "center", backgroundSize: "cover" } : undefined}><div className="flex items-center justify-between"><span>当前主题预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/75 px-2 py-1 text-slate-700">这是一条消息气泡</span></div>
+          <div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">一键主题方案</div>
+          <div className="grid grid-cols-5 gap-1">{BUILTIN_AI_THEMES.map(theme => <button key={theme.id} onClick={() => updateActiveAppearance(theme.appearance)} className="group rounded-lg px-1 pb-1 pt-1 text-center hover:bg-slate-100" aria-label={`应用${theme.name}主题`} title={`${theme.name}：${theme.note}`}><span className="mx-auto block size-6 rounded-full ring-1 ring-black/5 group-hover:scale-110" style={{ backgroundColor: `var(--accent-${theme.appearance.accent})` }} /><span className="mt-1 block truncate text-[9px] text-slate-500">{theme.name}</span></button>)}</div>
           <div className="mb-1 mt-3 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span>气泡圆角</span><span>当前：{radiusOptions.find(option => option.value === bubbleRadius)?.label}</span></div>
           <div className="grid grid-cols-3 gap-1.5">{radiusOptions.map(option => <button key={option.value} onClick={() => updateActiveAppearance({ bubbleRadius: option.value })} className={`rounded-lg p-1.5 text-left ${bubbleRadius === option.value ? "bg-sky-100 text-sky-700 ring-1 ring-sky-200" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`} aria-label={`选择${option.label}气泡圆角`}><span className={`mb-1 flex h-8 w-full items-center justify-center bg-[var(--primary)] px-1 text-[10px] font-medium text-[var(--primary-foreground)] ${option.sampleClass}`}>你好</span><span className="block text-center text-[10px] font-bold">{option.label}</span><span className="block text-center text-[9px] opacity-70">{option.hint}</span></button>)}</div>
           <div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">聊天背景</div><div className="grid grid-cols-4 gap-1">{([['plain','纯色'],['dots','圆点'],['grid','网格'],['paper','纸张']] as const).map(([value,label]) => <button key={value} onClick={() => updateActiveAppearance({ chatTexture: value })} className={`rounded-lg py-1 text-[10px] ${chatTexture === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 flex items-center gap-1 text-[10px] font-bold tracking-[0.1em] text-slate-400"><Type className="size-3" />字体大小</div><div className="grid grid-cols-3 gap-1"><button onClick={() => updateActiveAppearance({ fontScale: "small" })} className={`rounded-lg py-1 text-[11px] ${fontScale === "small" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>小</button><button onClick={() => updateActiveAppearance({ fontScale: "medium" })} className={`rounded-lg py-1 text-[12px] ${fontScale === "medium" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>标准</button><button onClick={() => updateActiveAppearance({ fontScale: "large" })} className={`rounded-lg py-1 text-sm ${fontScale === "large" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>大</button></div>
+          <input ref={backgroundInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={selectBackground} className="hidden" aria-label="选择自定义聊天背景" />
+          <div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => backgroundInputRef.current?.click()} disabled={isSavingBackground} className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60">{isSavingBackground ? "处理背景中…" : currentAppearance.backgroundImage ? "更换自定义背景" : "选择自定义背景"}</button>{currentAppearance.backgroundImage && <button type="button" onClick={() => updateActiveAppearance({ backgroundImage: undefined })} className="rounded-lg px-2 py-1.5 text-[10px] font-medium text-rose-600 hover:bg-rose-50">清除</button>}</div>
         </div>
         <button onClick={() => { closeDrawer(); setLocation("/ais"); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white"><Settings className="size-4 text-slate-400" /> 管理我的 AI <ChevronRight className="ml-auto size-4 text-slate-300" /></button>
         <button onClick={() => { closeDrawer(); setLocation("/profile"); }} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white">
@@ -493,6 +517,7 @@ export default function Home() {
               assistantAvatar={activeAI?.avatar}
               userName={userProfile.name}
               userAvatar={userProfile.avatar}
+              backgroundImage={currentAppearance.backgroundImage}
               draftKey={`${activeAI?.id ?? "no-ai"}:${activeConversationId ?? "new"}`}
             />
           </div>

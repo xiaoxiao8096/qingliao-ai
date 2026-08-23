@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendLocalMessages, conversationsForAI, createConversation } from "./localChat";
 import {
+  BUILTIN_AI_THEMES,
   createAppearancePreset,
   createAIProfile,
   getActiveAIId,
@@ -49,6 +50,21 @@ describe("local multi-AI profiles", () => {
 
     expect(getAIProfiles().find(profile => profile.id === first.id)?.appearance?.accent).toBe("sky");
     expect(getAIProfiles().find(profile => profile.id === "second-ai")?.appearance).toEqual(second.appearance);
+  });
+
+  it("keeps custom chat backgrounds isolated with each AI appearance", () => {
+    const initial = getAIProfiles()[0];
+    const first = { ...initial, appearance: { accent: "rose" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "dots" as const, backgroundImage: "data:image/jpeg;base64,first-background" } };
+    const second = { ...createAIProfile(), id: "second-ai", name: "写作助手", appearance: { accent: "emerald" as const, fontScale: "large" as const, bubbleRadius: "pill" as const, chatTexture: "paper" as const, backgroundImage: "data:image/jpeg;base64,second-background" } };
+    saveAIProfiles([first, second]);
+
+    expect(getAIProfiles().find(profile => profile.id === first.id)?.appearance?.backgroundImage).toContain("first-background");
+    expect(getAIProfiles().find(profile => profile.id === "second-ai")?.appearance?.backgroundImage).toContain("second-background");
+  });
+
+  it("provides complete built-in themes ready for one-click application", () => {
+    expect(BUILTIN_AI_THEMES.map(theme => theme.name)).toEqual(["清透蓝", "暮光紫", "莓果粉", "森林纸", "暖阳黄"]);
+    expect(BUILTIN_AI_THEMES.every(theme => theme.appearance.accent && theme.appearance.bubbleRadius && theme.appearance.chatTexture)).toBe(true);
   });
 
   it("saves named appearance presets separately from AI profiles", () => {

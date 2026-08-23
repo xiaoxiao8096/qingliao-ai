@@ -52,6 +52,8 @@ export type AIChatBoxProps = {
   assistantAvatar?: string;
   userName?: string;
   userAvatar?: string;
+  /** 当前 AI 保存的本机聊天背景图片。 */
+  backgroundImage?: string;
   /** Optional local-storage key used to restore an unsent draft. */
   draftKey?: string;
 };
@@ -105,6 +107,7 @@ export function AIChatBox({
   assistantAvatar,
   userName = "我",
   userAvatar,
+  backgroundImage,
   draftKey,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
@@ -303,7 +306,7 @@ export function AIChatBox({
       style={{ height }}
     >
       {/* Messages Area */}
-      <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden">
+      <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden" style={backgroundImage ? { backgroundImage: `linear-gradient(rgb(255 255 255 / 0.72), rgb(255 255 255 / 0.72)), url("${backgroundImage}")`, backgroundPosition: "center", backgroundSize: "cover" } : undefined}>
         {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">
             <div className="flex flex-1 flex-col items-center justify-center gap-6 text-muted-foreground">
