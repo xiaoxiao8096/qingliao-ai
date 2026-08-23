@@ -25,7 +25,7 @@ import {
 } from "@/lib/localChat";
 import { useThemePreference } from "@/contexts/ThemeContext";
 import { toPersistedAttachment, type Attachment } from "@/lib/attachments";
-import { getActiveAIId, getAIProfiles, getUserProfile, setActiveAIId, type LocalAIProfile } from "@/lib/localProfiles";
+import { DEFAULT_AI_APPEARANCE, getActiveAIId, getAIProfiles, getUserProfile, saveAIProfiles, setActiveAIId, type AIAppearance, type LocalAIProfile } from "@/lib/localProfiles";
 import {
   Check,
   ChevronRight,
@@ -101,7 +101,7 @@ function initials(name: string) {
 export default function Home() {
   const [, setLocation] = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [profiles] = useState<LocalAIProfile[]>(() => getAIProfiles());
+  const [profiles, setProfiles] = useState<LocalAIProfile[]>(() => getAIProfiles());
   const [activeAIId, setCurrentAIId] = useState(() => getActiveAIId());
   const [conversations, setConversations] = useState<LocalConversation[]>(() => getConversations());
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -114,12 +114,32 @@ export default function Home() {
   const [groupFilter, setGroupFilter] = useState("all");
   const [managingGroup, setManagingGroup] = useState<string | null>(null);
   const [groupManagerValue, setGroupManagerValue] = useState("");
-  const { preference, setPreference, accent, setAccent, fontScale, setFontScale, bubbleRadius, setBubbleRadius, chatTexture, setChatTexture, resetAppearance } = useThemePreference();
+  const { preference, setPreference, accent, setAccent, fontScale, setFontScale, bubbleRadius, setBubbleRadius, chatTexture, setChatTexture } = useThemePreference();
 
   const userProfile = getUserProfile();
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => () => { abortRef.current?.abort(); }, []);
   const activeAI = profiles.find(profile => profile.id === activeAIId) ?? profiles[0];
+
+  useEffect(() => {
+    const appearance = { ...DEFAULT_AI_APPEARANCE, ...activeAI?.appearance };
+    setAccent(appearance.accent);
+    setFontScale(appearance.fontScale);
+    setBubbleRadius(appearance.bubbleRadius);
+    setChatTexture(appearance.chatTexture);
+  }, [activeAI?.id]);
+
+  function updateActiveAppearance(patch: Partial<AIAppearance>) {
+    if (!activeAI) return;
+    const appearance = { ...DEFAULT_AI_APPEARANCE, ...activeAI.appearance, ...patch };
+    const next = profiles.map(profile => profile.id === activeAI.id ? { ...profile, appearance, updatedAt: Date.now() } : profile);
+    setProfiles(next);
+    saveAIProfiles(next);
+    if (patch.accent) setAccent(patch.accent);
+    if (patch.fontScale) setFontScale(patch.fontScale);
+    if (patch.bubbleRadius) setBubbleRadius(patch.bubbleRadius);
+    if (patch.chatTexture) setChatTexture(patch.chatTexture);
+  }
   const currentConversations = useMemo(
     () => activeAI ? conversationsForAI(conversations, activeAI.id) : [],
     [activeAI, conversations],
@@ -399,7 +419,7 @@ export default function Home() {
 
       <div className="mt-4 border-t border-slate-200 pt-3">
         <div className="mb-2 grid grid-cols-3 gap-1 rounded-xl bg-white p-1 text-slate-500 shadow-sm"><button onClick={() => setPreference("light")} className={`grid h-8 place-items-center rounded-lg ${preference === "light" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`} aria-label="浅色模式"><Sun className="size-3.5" /></button><button onClick={() => setPreference("dark")} className={`grid h-8 place-items-center rounded-lg ${preference === "dark" ? "bg-slate-800 text-white" : "hover:bg-slate-100"}`} aria-label="深色模式"><Moon className="size-3.5" /></button><button onClick={() => setPreference("system")} className={`grid h-8 place-items-center rounded-lg ${preference === "system" ? "bg-slate-100 text-slate-700" : "hover:bg-slate-100"}`} aria-label="跟随系统主题"><Monitor className="size-3.5" /></button></div>
-        <div className="mb-2 rounded-xl bg-white p-2 shadow-sm"><div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span className="flex items-center gap-1"><Palette className="size-3" />主题色</span><button onClick={resetAppearance} className="text-sky-700 hover:underline">恢复默认</button></div><div className="flex items-center justify-between gap-1">{(["sky", "violet", "rose", "emerald", "amber"] as const).map(color => <button key={color} onClick={() => setAccent(color)} className={`grid size-6 place-items-center rounded-full ${accent === color ? "ring-2 ring-slate-500 ring-offset-2" : ""}`} aria-label={`选择${color}主题色`}><span className={`size-4 rounded-full bg-[var(--accent-${color})]`} /></button>)}</div><div className="mt-2 rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览"><div className="flex items-center justify-between"><span>当前配色预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/65 px-2 py-1">这是一条消息气泡</span></div><div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">气泡圆角</div><div className="grid grid-cols-3 gap-1">{([['soft','柔和'],['rounded','圆润'],['pill','胶囊']] as const).map(([value,label]) => <button key={value} onClick={() => setBubbleRadius(value)} className={`rounded-lg py-1 text-[11px] ${bubbleRadius === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">聊天背景</div><div className="grid grid-cols-4 gap-1">{([['plain','纯色'],['dots','圆点'],['grid','网格'],['paper','纸张']] as const).map(([value,label]) => <button key={value} onClick={() => setChatTexture(value)} className={`rounded-lg py-1 text-[10px] ${chatTexture === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 flex items-center gap-1 text-[10px] font-bold tracking-[0.1em] text-slate-400"><Type className="size-3" />字体大小</div><div className="grid grid-cols-3 gap-1"><button onClick={() => setFontScale("small")} className={`rounded-lg py-1 text-[11px] ${fontScale === "small" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>小</button><button onClick={() => setFontScale("medium")} className={`rounded-lg py-1 text-[12px] ${fontScale === "medium" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>标准</button><button onClick={() => setFontScale("large")} className={`rounded-lg py-1 text-sm ${fontScale === "large" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>大</button></div></div>
+        <div className="mb-2 rounded-xl bg-white p-2 shadow-sm"><div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span className="flex items-center gap-1"><Palette className="size-3" />{activeAI?.name ?? "当前 AI"} 的主题</span><button onClick={() => updateActiveAppearance(DEFAULT_AI_APPEARANCE)} className="text-sky-700 hover:underline">恢复默认</button></div><div className="flex items-center justify-between gap-1">{(["sky", "violet", "rose", "emerald", "amber"] as const).map(color => <button key={color} onClick={() => updateActiveAppearance({ accent: color })} className={`grid size-6 place-items-center rounded-full ${accent === color ? "ring-2 ring-slate-500 ring-offset-2" : ""}`} aria-label={`选择${color}主题色`}><span className={`size-4 rounded-full bg-[var(--accent-${color})]`} /></button>)}</div><div className="mt-2 rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览"><div className="flex items-center justify-between"><span>当前配色预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/65 px-2 py-1">这是一条消息气泡</span></div><div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">气泡圆角</div><div className="grid grid-cols-3 gap-1">{([['soft','柔和'],['rounded','圆润'],['pill','胶囊']] as const).map(([value,label]) => <button key={value} onClick={() => updateActiveAppearance({ bubbleRadius: value })} className={`rounded-lg py-1 text-[11px] ${bubbleRadius === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">聊天背景</div><div className="grid grid-cols-4 gap-1">{([['plain','纯色'],['dots','圆点'],['grid','网格'],['paper','纸张']] as const).map(([value,label]) => <button key={value} onClick={() => updateActiveAppearance({ chatTexture: value })} className={`rounded-lg py-1 text-[10px] ${chatTexture === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 flex items-center gap-1 text-[10px] font-bold tracking-[0.1em] text-slate-400"><Type className="size-3" />字体大小</div><div className="grid grid-cols-3 gap-1"><button onClick={() => updateActiveAppearance({ fontScale: "small" })} className={`rounded-lg py-1 text-[11px] ${fontScale === "small" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>小</button><button onClick={() => updateActiveAppearance({ fontScale: "medium" })} className={`rounded-lg py-1 text-[12px] ${fontScale === "medium" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>标准</button><button onClick={() => updateActiveAppearance({ fontScale: "large" })} className={`rounded-lg py-1 text-sm ${fontScale === "large" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>大</button></div></div>
         <button onClick={() => setLocation("/ais")} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white"><Settings className="size-4 text-slate-400" /> 管理我的 AI <ChevronRight className="ml-auto size-4 text-slate-300" /></button>
         <button onClick={() => setLocation("/profile")} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white">
           <span className="grid size-6 place-items-center overflow-hidden rounded-full bg-[#f7dfe7] text-[10px] font-bold text-[#9b5267]">{userProfile.avatar ? <img src={userProfile.avatar} alt="" className="size-full object-cover" /> : userProfile.name.slice(0, 1)}</span>

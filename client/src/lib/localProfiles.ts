@@ -1,11 +1,24 @@
 import { getSettings, type LocalModelSettings } from "./localChat";
 
+export type AIAppearance = {
+  accent: "sky" | "violet" | "rose" | "emerald" | "amber";
+  fontScale: "small" | "medium" | "large";
+  bubbleRadius: "soft" | "rounded" | "pill";
+  chatTexture: "plain" | "dots" | "grid" | "paper";
+};
+
+export const DEFAULT_AI_APPEARANCE: AIAppearance = {
+  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain",
+};
+
 export type LocalAIProfile = LocalModelSettings & {
   id: string;
   name: string;
   avatar: string;
   /** 该 AI 的人物设定 / 系统提示词（可选） */
   persona: string;
+  /** 该 AI 专属外观；旧档案缺省时沿用默认值 */
+  appearance?: AIAppearance;
   createdAt: number;
   updatedAt: number;
 };
@@ -45,6 +58,7 @@ function defaultAI(): LocalAIProfile {
     apiKey: old.apiKey,
     model: old.model,
     persona: "",
+    appearance: DEFAULT_AI_APPEARANCE,
     createdAt: now,
     updatedAt: now,
   };
@@ -86,6 +100,7 @@ export function createAIProfile(): LocalAIProfile {
     apiKey: "",
     model: "",
     persona: "",
+    appearance: DEFAULT_AI_APPEARANCE,
     createdAt: now,
     updatedAt: now,
   };

@@ -38,6 +38,16 @@ describe("local multi-AI profiles", () => {
     expect(getActiveAIId()).toBe("second-ai");
   });
 
+  it("persists independent appearance themes for different AI profiles", () => {
+    const initial = getAIProfiles()[0];
+    const second = { ...createAIProfile(), id: "second-ai", name: "写作助手", appearance: { accent: "violet" as const, fontScale: "large" as const, bubbleRadius: "pill" as const, chatTexture: "grid" as const } };
+    const first = { ...initial, appearance: { accent: "sky" as const, fontScale: "small" as const, bubbleRadius: "soft" as const, chatTexture: "plain" as const } };
+    saveAIProfiles([first, second]);
+
+    expect(getAIProfiles().find(profile => profile.id === first.id)?.appearance?.accent).toBe("sky");
+    expect(getAIProfiles().find(profile => profile.id === "second-ai")?.appearance).toEqual(second.appearance);
+  });
+
   it("keeps conversations isolated by their owning AI profile", () => {
     const one = { ...createConversation("first-ai"), id: "one" };
     const two = { ...createConversation("second-ai"), id: "two" };
