@@ -31,6 +31,11 @@
 
 :root {
   --radius: 0.8rem;
+  --accent-sky: oklch(0.62 0.075 230);
+  --accent-violet: oklch(0.58 0.15 295);
+  --accent-rose: oklch(0.62 0.16 12);
+  --accent-emerald: oklch(0.6 0.12 165);
+  --accent-amber: oklch(0.72 0.14 78);
   --background: oklch(0.972 0.006 240);
   --foreground: oklch(0.22 0.016 250);
   --card: oklch(1 0 0);
@@ -51,6 +56,16 @@
   --input: oklch(0.9 0.009 240);
   --ring: oklch(0.62 0.075 230);
 }
+
+:root[data-accent="violet"] { --primary: oklch(0.42 0.12 292); --ring: var(--accent-violet); --accent: oklch(0.93 0.04 292); }
+:root[data-accent="rose"] { --primary: oklch(0.45 0.13 12); --ring: var(--accent-rose); --accent: oklch(0.94 0.035 12); }
+:root[data-accent="emerald"] { --primary: oklch(0.4 0.09 165); --ring: var(--accent-emerald); --accent: oklch(0.93 0.035 165); }
+:root[data-accent="amber"] { --primary: oklch(0.45 0.1 78); --ring: var(--accent-amber); --accent: oklch(0.95 0.04 78); }
+:root[data-accent="sky"] { --primary: oklch(0.29 0.025 250); --ring: var(--accent-sky); --accent: oklch(0.93 0.025 225); }
+
+html[data-font-scale="small"] { font-size: 14px; }
+html[data-font-scale="medium"] { font-size: 16px; }
+html[data-font-scale="large"] { font-size: 18px; }
 
 .dark {
   --background: oklch(0.16 0.012 250);
