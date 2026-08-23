@@ -320,7 +320,7 @@ export default function Home() {
   }
 
   const conversationPanel = (
-    <aside className="flex h-full w-[min(85vw,320px)] flex-col bg-[#f8fafb] px-3 pb-4 pt-4 shadow-[12px_0_35px_rgba(36,54,69,0.08)] lg:w-[300px] lg:shadow-none">
+    <aside className="relative z-10 flex h-full w-[min(85vw,320px)] flex-col bg-[#f8fafb] px-3 pb-4 pt-4 shadow-[12px_0_35px_rgba(36,54,69,0.08)] lg:w-[300px] lg:shadow-none">
       <div className="flex items-center justify-between px-2 pb-4">
         <button onClick={() => setLocation("/")} className="flex items-center gap-2 text-left" aria-label="回到聊天主页">
           <span className="grid size-8 place-items-center rounded-xl bg-[#dceefa] text-[#417698]"><CircleHelp className="size-4" /></span>
@@ -433,7 +433,7 @@ export default function Home() {
   return (
     <main className="flex h-dvh overflow-hidden bg-[#f3f6f8] text-slate-900">
       <div className="hidden h-full shrink-0 lg:block">{conversationPanel}</div>
-      {drawerOpen && <div className="fixed inset-0 z-50 lg:hidden"><button onClick={() => setDrawerOpen(false)} className="absolute inset-0 bg-slate-900/25" aria-label="关闭会话面板" />{conversationPanel}</div>}
+      {drawerOpen && <div className="fixed inset-0 z-50 isolate lg:hidden"><button onClick={() => setDrawerOpen(false)} className="absolute inset-0 z-0 bg-slate-950/15" aria-label="关闭会话面板" />{conversationPanel}</div>}
       <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="pointer-events-none absolute -right-16 top-5 size-52 rounded-full bg-[#dceefa]/70 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 left-1/4 size-56 rounded-full bg-[#f7dfe7]/60 blur-3xl" />
