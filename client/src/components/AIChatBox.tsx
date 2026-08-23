@@ -303,7 +303,7 @@ export function AIChatBox({
       style={{ height }}
     >
       {/* Messages Area */}
-      <div className="relative flex-1 min-h-0 overflow-hidden">
+      <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden">
         {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">
             <div className="flex flex-1 flex-col items-center justify-center gap-6 text-muted-foreground">
@@ -377,7 +377,7 @@ export function AIChatBox({
                     <div className={cn("flex min-w-0 flex-col", isUser ? "items-end" : "items-start")}>
                       <div
                         className={cn(
-                          "group relative max-w-[80%] rounded-lg px-4 py-2.5",
+                          "chat-bubble group relative max-w-[80%] rounded-lg px-4 py-2.5",
                           isUser
                             ? "bg-primary text-primary-foreground"
                             : "bg-muted text-foreground"

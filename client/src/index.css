@@ -67,6 +67,15 @@ html[data-font-scale="small"] { font-size: 14px; }
 html[data-font-scale="medium"] { font-size: 16px; }
 html[data-font-scale="large"] { font-size: 18px; }
 
+:root[data-bubble-radius="soft"] { --chat-bubble-radius: 0.7rem; }
+:root[data-bubble-radius="rounded"] { --chat-bubble-radius: 1.25rem; }
+:root[data-bubble-radius="pill"] { --chat-bubble-radius: 1.8rem; }
+.chat-bubble { border-radius: var(--chat-bubble-radius, 1.25rem) !important; }
+.chat-message-area { background-color: color-mix(in oklch, var(--card) 96%, var(--background)); }
+:root[data-chat-texture="dots"] .chat-message-area { background-image: radial-gradient(color-mix(in oklch, var(--muted-foreground) 20%, transparent) 1px, transparent 1px); background-size: 16px 16px; }
+:root[data-chat-texture="grid"] .chat-message-area { background-image: linear-gradient(color-mix(in oklch, var(--muted-foreground) 15%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in oklch, var(--muted-foreground) 15%, transparent) 1px, transparent 1px); background-size: 20px 20px; }
+:root[data-chat-texture="paper"] .chat-message-area { background-image: linear-gradient(115deg, color-mix(in oklch, var(--accent) 12%, transparent), transparent 42%), repeating-linear-gradient(0deg, transparent, transparent 27px, color-mix(in oklch, var(--muted-foreground) 12%, transparent) 28px); }
+
 .dark {
   --background: oklch(0.16 0.012 250);
   --foreground: oklch(0.92 0.008 240);
