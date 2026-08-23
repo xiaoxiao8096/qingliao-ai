@@ -4,18 +4,23 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { checkModelConnection, checkSelectedModel, fetchAvailableModels } from "@/lib/localChat";
 import {
+  createAppearancePreset,
   createAIProfile,
   DEFAULT_AI_APPEARANCE,
   getAIProfiles,
+  getAppearancePresets,
   getActiveAIId,
   imageFileToDataUrl,
+  saveAppearancePresets,
   saveAIProfiles,
   setActiveAIId,
   type AIAppearance,
+  type AppearancePreset,
   type LocalAIProfile,
 } from "@/lib/localProfiles";
 import {
   ArrowLeft,
+  BookmarkPlus,
   Bot,
   CheckCircle2,
   Eye,
@@ -29,8 +34,9 @@ import {
   Trash2,
   Type,
   Wifi,
+  X,
 } from "lucide-react";
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, type CSSProperties, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -71,6 +77,34 @@ const textureOptions: { value: AIAppearance["chatTexture"]; label: string }[] = 
   { value: "paper", label: "纸张" },
 ];
 
+const previewPalette: Record<AIAppearance["accent"], { primary: string; soft: string }> = {
+  sky: { primary: "#16698e", soft: "#e4f3fb" },
+  violet: { primary: "#6844ad", soft: "#efe9ff" },
+  rose: { primary: "#a94d63", soft: "#fbe9ee" },
+  emerald: { primary: "#277a5f", soft: "#e4f5ed" },
+  amber: { primary: "#95621a", soft: "#fff3d9" },
+};
+
+function appearanceOf(value?: Partial<AIAppearance>): AIAppearance {
+  return { ...DEFAULT_AI_APPEARANCE, ...value };
+}
+
+function previewTexture(appearance: AIAppearance): CSSProperties {
+  const tint = previewPalette[appearance.accent].primary;
+  if (appearance.chatTexture === "dots") return { backgroundColor: "#fbfcfd", backgroundImage: "radial-gradient(rgba(100,116,139,.20) 1px, transparent 1px)", backgroundSize: "16px 16px" };
+  if (appearance.chatTexture === "grid") return { backgroundColor: "#fbfcfd", backgroundImage: "linear-gradient(rgba(100,116,139,.15) 1px, transparent 1px), linear-gradient(90deg, rgba(100,116,139,.15) 1px, transparent 1px)", backgroundSize: "20px 20px" };
+  if (appearance.chatTexture === "paper") return { backgroundColor: "#fffefd", backgroundImage: `linear-gradient(115deg, ${tint}18, transparent 45%), repeating-linear-gradient(0deg, transparent, transparent 26px, rgba(100,116,139,.12) 27px)` };
+  return { backgroundColor: "#fbfcfd" };
+}
+
+function previewRadius(value: AIAppearance["bubbleRadius"]) {
+  return value === "soft" ? "0.7rem" : value === "pill" ? "1.8rem" : "1.25rem";
+}
+
+function previewFontSize(value: AIAppearance["fontScale"]) {
+  return value === "small" ? "12px" : value === "large" ? "16px" : "14px";
+}
+
 export default function AIManager() {
   const [, setLocation] = useLocation();
   const [profiles, setProfiles] = useState<LocalAIProfile[]>(() => getAIProfiles());
@@ -83,9 +117,12 @@ export default function AIManager() {
   const [testingSelectedModel, setTestingSelectedModel] = useState(false);
   const [modelFeedback, setModelFeedback] = useState<{ kind: "loading" | "error" | "success"; text: string } | null>(null);
   const [modelTestFeedback, setModelTestFeedback] = useState<{ kind: "loading" | "error" | "success"; text: string } | null>(null);
+  const [presets, setPresets] = useState<AppearancePreset[]>(() => getAppearancePresets());
+  const [presetName, setPresetName] = useState("");
   const avatarInput = useRef<HTMLInputElement>(null);
   const current = profiles.find(profile => profile.id === editingId) ?? profiles[0];
   const [form, setForm] = useState<LocalAIProfile>(() => current);
+  const appearance = appearanceOf(form.appearance);
 
   useEffect(() => {
     const selected = profiles.find(profile => profile.id === editingId) ?? profiles[0];
@@ -103,10 +140,40 @@ export default function AIManager() {
   }
 
   function saveAppearance(patch: Partial<AIAppearance>) {
-    const appearance = { ...DEFAULT_AI_APPEARANCE, ...form.appearance, ...patch };
+    const appearance = appearanceOf({ ...form.appearance, ...patch });
     const updatedAt = Date.now();
     setForm(previous => ({ ...previous, appearance, updatedAt }));
     persist(profiles.map(profile => profile.id === form.id ? { ...profile, appearance, updatedAt } : profile));
+  }
+
+  function persistPresets(next: AppearancePreset[]) {
+    setPresets(next);
+    saveAppearancePresets(next);
+  }
+
+  function savePreset() {
+    const name = presetName.trim();
+    if (!name) {
+      toast.error("请先为这个主题预设取个名字。");
+      return;
+    }
+    if (presets.length >= 20) {
+      toast.error("最多可保存 20 个主题预设，请先删除不常用的预设。");
+      return;
+    }
+    const preset = createAppearancePreset(name, appearance);
+    persistPresets([preset, ...presets]);
+    setPresetName("");
+    toast.success(`已保存主题预设「${preset.name}」。`);
+  }
+
+  function applyPreset(preset: AppearancePreset) {
+    saveAppearance(preset.appearance);
+    toast.success(`已将「${preset.name}」应用到 ${form.name || "当前 AI"}。`);
+  }
+
+  function removePreset(id: string) {
+    persistPresets(presets.filter(preset => preset.id !== id));
   }
 
   function addProfile() {
@@ -320,6 +387,19 @@ export default function AIManager() {
                     <p className="mt-0.5 text-xs leading-5 text-slate-500">点击即保存到当前 AI；不同角色可拥有不同视觉标记。</p>
                   </div>
                 </div>
+                <div className="mt-4 overflow-hidden rounded-2xl border border-white bg-white shadow-sm" aria-label="实时聊天界面预览">
+                  <div className="min-h-40 p-3" style={previewTexture(appearance)}>
+                    <div className="mb-3 flex items-center justify-between" style={{ fontSize: previewFontSize(appearance.fontScale) }}>
+                      <span className="font-semibold text-slate-700">实时聊天预览</span>
+                      <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] text-slate-500 shadow-sm">{form.name || "当前 AI"}</span>
+                    </div>
+                    <div className="space-y-2" style={{ fontSize: previewFontSize(appearance.fontScale) }}>
+                      <div className="w-fit max-w-[82%] bg-white/90 px-3 py-2 text-slate-600 shadow-sm" style={{ borderRadius: previewRadius(appearance.bubbleRadius) }}>你好，我会按你的风格来回答。</div>
+                      <div className="ml-auto w-fit max-w-[82%] px-3 py-2 text-white shadow-sm" style={{ borderRadius: previewRadius(appearance.bubbleRadius), backgroundColor: previewPalette[appearance.accent].primary }}>这样看起来很舒服。</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-100 bg-white px-3 py-2 text-[10px] text-slate-500"><span>会随下方选项即时变化</span><span className="font-semibold" style={{ color: previewPalette[appearance.accent].primary }}>{accentOptions.find(option => option.value === appearance.accent)?.label}主题</span></div>
+                </div>
                 <div className="mt-4 space-y-4">
                   <div>
                     <p className="mb-2 text-xs font-semibold text-slate-500">主题色</p>
@@ -349,6 +429,12 @@ export default function AIManager() {
                     <div className="grid grid-cols-4 gap-1 rounded-xl bg-white/70 p-1">
                       {textureOptions.map(option => { const selected = (form.appearance?.chatTexture ?? DEFAULT_AI_APPEARANCE.chatTexture) === option.value; return <button key={option.value} type="button" onClick={() => saveAppearance({ chatTexture: option.value })} className={`h-8 rounded-lg text-xs font-semibold transition ${selected ? "bg-violet-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"}`} aria-pressed={selected}>{option.label}</button>; })}
                     </div>
+                  </div>
+                  <div className="border-t border-violet-100 pt-4">
+                    <p className="text-xs font-semibold text-slate-600">保存为主题预设</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">预设只保存在当前 Safari，可快速套用到任意 AI。</p>
+                    <div className="mt-2 flex gap-2"><Input value={presetName} onChange={event => setPresetName(event.target.value)} maxLength={24} placeholder="例如：深夜写作" className="h-9 rounded-xl border-violet-100 bg-white text-sm" /><Button type="button" onClick={savePreset} className="h-9 shrink-0 rounded-xl bg-violet-600 px-3 text-xs text-white hover:bg-violet-700"><BookmarkPlus className="mr-1 size-3.5" />保存</Button></div>
+                    {presets.length > 0 ? <div className="mt-3 space-y-1.5" aria-label="已保存主题预设">{presets.map(preset => <div key={preset.id} className="flex items-center gap-1 rounded-xl border border-white bg-white/80 p-1"><button type="button" onClick={() => applyPreset(preset)} className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-violet-50"><span className="block truncate font-semibold text-slate-700">{preset.name}</span><span className="block truncate text-[10px] text-slate-400">{accentOptions.find(option => option.value === preset.appearance.accent)?.label} · {fontScaleOptions.find(option => option.value === preset.appearance.fontScale)?.label}字 · {textureOptions.find(option => option.value === preset.appearance.chatTexture)?.label}</span></button><button type="button" onClick={() => removePreset(preset.id)} className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label={`删除主题预设 ${preset.name}`}><X className="size-3.5" /></button></div>)}</div> : <p className="mt-3 rounded-xl border border-dashed border-violet-100 bg-white/55 px-3 py-2 text-xs text-slate-400">还没有保存的主题预设。</p>}
                   </div>
                 </div>
               </section>

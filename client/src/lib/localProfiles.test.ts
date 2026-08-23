@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendLocalMessages, conversationsForAI, createConversation } from "./localChat";
 import {
+  createAppearancePreset,
   createAIProfile,
   getActiveAIId,
   getAIProfiles,
+  getAppearancePresets,
   getUserProfile,
+  saveAppearancePresets,
   saveAIProfiles,
   saveUserProfile,
   setActiveAIId,
@@ -46,6 +49,14 @@ describe("local multi-AI profiles", () => {
 
     expect(getAIProfiles().find(profile => profile.id === first.id)?.appearance?.accent).toBe("sky");
     expect(getAIProfiles().find(profile => profile.id === "second-ai")?.appearance).toEqual(second.appearance);
+  });
+
+  it("saves named appearance presets separately from AI profiles", () => {
+    const preset = createAppearancePreset("深夜写作", { accent: "violet", fontScale: "large", bubbleRadius: "pill", chatTexture: "paper" });
+    saveAppearancePresets([preset]);
+
+    expect(getAppearancePresets()).toEqual([preset]);
+    expect(getAIProfiles()[0].appearance?.accent).toBe("sky");
   });
 
   it("keeps conversations isolated by their owning AI profile", () => {

@@ -7,6 +7,13 @@ export type AIAppearance = {
   chatTexture: "plain" | "dots" | "grid" | "paper";
 };
 
+export type AppearancePreset = {
+  id: string;
+  name: string;
+  appearance: AIAppearance;
+  createdAt: number;
+};
+
 export const DEFAULT_AI_APPEARANCE: AIAppearance = {
   accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain",
 };
@@ -31,6 +38,7 @@ export type LocalUserProfile = {
 const AI_PROFILES_KEY = "qingliao.personal.ai-profiles.v1";
 const ACTIVE_AI_KEY = "qingliao.personal.active-ai.v1";
 const USER_PROFILE_KEY = "qingliao.personal.user-profile.v1";
+const APPEARANCE_PRESETS_KEY = "qingliao.personal.appearance-presets.v1";
 export const DEFAULT_AI_ID = "default-ai";
 
 function storage() {
@@ -66,6 +74,27 @@ function defaultAI(): LocalAIProfile {
 
 export function createProfileId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
+  return { ...DEFAULT_AI_APPEARANCE, ...value };
+}
+
+export function getAppearancePresets(): AppearancePreset[] {
+  const saved = parse<AppearancePreset[]>(APPEARANCE_PRESETS_KEY, []);
+  if (!Array.isArray(saved)) return [];
+  return saved
+    .filter(preset => preset && typeof preset.id === "string" && typeof preset.name === "string" && preset.name.trim())
+    .slice(0, 20)
+    .map(preset => ({ ...preset, name: preset.name.trim().slice(0, 24), appearance: normalizedAppearance(preset.appearance) }));
+}
+
+export function saveAppearancePresets(presets: AppearancePreset[]) {
+  storage()?.setItem(APPEARANCE_PRESETS_KEY, JSON.stringify(presets.slice(0, 20)));
+}
+
+export function createAppearancePreset(name: string, appearance: AIAppearance): AppearancePreset {
+  return { id: createProfileId(), name: name.trim().slice(0, 24), appearance: normalizedAppearance(appearance), createdAt: Date.now() };
 }
 
 export function getAIProfiles(): LocalAIProfile[] {
