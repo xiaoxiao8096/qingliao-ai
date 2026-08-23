@@ -98,9 +98,16 @@ function initials(name: string) {
   return name.trim().slice(0, 1).toUpperCase() || "AI";
 }
 
+const radiusOptions = [
+  { value: "soft", label: "柔和", hint: "轻圆角", sampleClass: "rounded-md" },
+  { value: "rounded", label: "圆润", hint: "大圆角", sampleClass: "rounded-2xl" },
+  { value: "pill", label: "胶囊", hint: "全圆角", sampleClass: "rounded-full" },
+] as const;
+
 export default function Home() {
   const [, setLocation] = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerMounted, setDrawerMounted] = useState(false);
   const [profiles, setProfiles] = useState<LocalAIProfile[]>(() => getAIProfiles());
   const [activeAIId, setCurrentAIId] = useState(() => getActiveAIId());
   const [conversations, setConversations] = useState<LocalConversation[]>(() => getConversations());
@@ -118,7 +125,8 @@ export default function Home() {
 
   const userProfile = getUserProfile();
   const abortRef = useRef<AbortController | null>(null);
-  useEffect(() => () => { abortRef.current?.abort(); }, []);
+  const drawerCloseTimer = useRef<number | null>(null);
+  useEffect(() => () => { abortRef.current?.abort(); if (drawerCloseTimer.current !== null) window.clearTimeout(drawerCloseTimer.current); }, []);
   const activeAI = profiles.find(profile => profile.id === activeAIId) ?? profiles[0];
 
   useEffect(() => {
@@ -153,6 +161,23 @@ export default function Home() {
   const messages = useMemo<StreamMessage[]>(() => activeConversation?.messages.map(message => ({ id: message.id, role: message.role, content: message.content, attachments: message.attachments, feedback: message.feedback, createdAt: message.createdAt })) ?? [], [activeConversation]);
   const isConfigured = Boolean(activeAI?.baseUrl && activeAI?.apiKey && activeAI?.model);
 
+  function openDrawer() {
+    if (drawerCloseTimer.current !== null) window.clearTimeout(drawerCloseTimer.current);
+    setDrawerMounted(true);
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setDrawerOpen(true);
+      return;
+    }
+    window.requestAnimationFrame(() => setDrawerOpen(true));
+  }
+
+  function closeDrawer() {
+    setDrawerOpen(false);
+    if (drawerCloseTimer.current !== null) window.clearTimeout(drawerCloseTimer.current);
+    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 240;
+    drawerCloseTimer.current = window.setTimeout(() => setDrawerMounted(false), delay);
+  }
+
   useEffect(() => {
     if (!activeConversationId || !currentConversations.some(item => item.id === activeConversationId)) {
       setActiveConversationId(currentConversations[0]?.id ?? null);
@@ -165,7 +190,7 @@ export default function Home() {
     updateStoredConversations(setConversations, previous => [conversation, ...previous]);
     setActiveConversationId(conversation.id);
     setConversationQuery("");
-    setDrawerOpen(false);
+    closeDrawer();
   }
 
   function selectAI(id: string) {
@@ -173,7 +198,7 @@ export default function Home() {
     setCurrentAIId(id);
     setActiveConversationId(null);
     setConversationQuery("");
-    setDrawerOpen(false);
+    closeDrawer();
   }
 
   function beginRename(conversation: LocalConversation) {
@@ -320,7 +345,7 @@ export default function Home() {
   }
 
   const conversationPanel = (
-    <aside className="relative z-10 flex h-full w-[min(85vw,320px)] flex-col bg-[#f8fafb] px-3 pb-4 pt-4 shadow-[12px_0_35px_rgba(36,54,69,0.08)] lg:w-[300px] lg:shadow-none">
+    <aside className="mobile-drawer-panel relative z-10 flex h-full w-[min(85vw,320px)] flex-col bg-[#f8fafb] px-3 pb-4 pt-4 shadow-[12px_0_35px_rgba(36,54,69,0.08)] lg:w-[300px] lg:shadow-none">
       <div className="flex items-center justify-between px-2 pb-4">
         <button onClick={() => setLocation("/")} className="flex items-center gap-2 text-left" aria-label="回到聊天主页">
           <span className="grid size-8 place-items-center rounded-xl bg-[#dceefa] text-[#417698]"><CircleHelp className="size-4" /></span>
@@ -329,10 +354,10 @@ export default function Home() {
             <span className="block text-[10px] font-semibold tracking-[0.16em] text-slate-400">PRIVATE · LOCAL</span>
           </span>
         </button>
-        <button onClick={() => setDrawerOpen(false)} className="grid size-9 place-items-center rounded-xl text-slate-500 hover:bg-slate-200 lg:hidden" aria-label="关闭会话面板"><X className="size-4" /></button>
+        <button onClick={closeDrawer} className="grid size-9 place-items-center rounded-xl text-slate-500 hover:bg-slate-200 lg:hidden" aria-label="关闭会话面板"><X className="size-4" /></button>
       </div>
 
-      <button onClick={() => setLocation("/ais")} className="mb-3 flex w-full items-center gap-2 rounded-xl bg-white p-2 text-left shadow-sm hover:bg-[#edf6fb]">
+      <button onClick={() => { closeDrawer(); setLocation("/ais"); }} className="mb-3 flex w-full items-center gap-2 rounded-xl bg-white p-2 text-left shadow-sm hover:bg-[#edf6fb]">
         <span className="grid size-9 place-items-center overflow-hidden rounded-full bg-[#dceefa] text-xs font-bold text-[#3f7698]">
           {activeAI?.avatar ? <img src={activeAI.avatar} alt="" className="size-full object-cover" /> : initials(activeAI?.name ?? "AI")}
         </span>
@@ -419,9 +444,16 @@ export default function Home() {
 
       <div className="mt-4 border-t border-slate-200 pt-3">
         <div className="mb-2 grid grid-cols-3 gap-1 rounded-xl bg-white p-1 text-slate-500 shadow-sm"><button onClick={() => setPreference("light")} className={`grid h-8 place-items-center rounded-lg ${preference === "light" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`} aria-label="浅色模式"><Sun className="size-3.5" /></button><button onClick={() => setPreference("dark")} className={`grid h-8 place-items-center rounded-lg ${preference === "dark" ? "bg-slate-800 text-white" : "hover:bg-slate-100"}`} aria-label="深色模式"><Moon className="size-3.5" /></button><button onClick={() => setPreference("system")} className={`grid h-8 place-items-center rounded-lg ${preference === "system" ? "bg-slate-100 text-slate-700" : "hover:bg-slate-100"}`} aria-label="跟随系统主题"><Monitor className="size-3.5" /></button></div>
-        <div className="mb-2 rounded-xl bg-white p-2 shadow-sm"><div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span className="flex items-center gap-1"><Palette className="size-3" />{activeAI?.name ?? "当前 AI"} 的主题</span><button onClick={() => updateActiveAppearance(DEFAULT_AI_APPEARANCE)} className="text-sky-700 hover:underline">恢复默认</button></div><div className="flex items-center justify-between gap-1">{(["sky", "violet", "rose", "emerald", "amber"] as const).map(color => <button key={color} onClick={() => updateActiveAppearance({ accent: color })} className={`grid size-6 place-items-center rounded-full ${accent === color ? "ring-2 ring-slate-500 ring-offset-2" : ""}`} aria-label={`选择${color}主题色`}><span className={`size-4 rounded-full bg-[var(--accent-${color})]`} /></button>)}</div><div className="mt-2 rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览"><div className="flex items-center justify-between"><span>当前配色预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/65 px-2 py-1">这是一条消息气泡</span></div><div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">气泡圆角</div><div className="grid grid-cols-3 gap-1">{([['soft','柔和'],['rounded','圆润'],['pill','胶囊']] as const).map(([value,label]) => <button key={value} onClick={() => updateActiveAppearance({ bubbleRadius: value })} className={`rounded-lg py-1 text-[11px] ${bubbleRadius === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">聊天背景</div><div className="grid grid-cols-4 gap-1">{([['plain','纯色'],['dots','圆点'],['grid','网格'],['paper','纸张']] as const).map(([value,label]) => <button key={value} onClick={() => updateActiveAppearance({ chatTexture: value })} className={`rounded-lg py-1 text-[10px] ${chatTexture === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 flex items-center gap-1 text-[10px] font-bold tracking-[0.1em] text-slate-400"><Type className="size-3" />字体大小</div><div className="grid grid-cols-3 gap-1"><button onClick={() => updateActiveAppearance({ fontScale: "small" })} className={`rounded-lg py-1 text-[11px] ${fontScale === "small" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>小</button><button onClick={() => updateActiveAppearance({ fontScale: "medium" })} className={`rounded-lg py-1 text-[12px] ${fontScale === "medium" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>标准</button><button onClick={() => updateActiveAppearance({ fontScale: "large" })} className={`rounded-lg py-1 text-sm ${fontScale === "large" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>大</button></div></div>
-        <button onClick={() => setLocation("/ais")} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white"><Settings className="size-4 text-slate-400" /> 管理我的 AI <ChevronRight className="ml-auto size-4 text-slate-300" /></button>
-        <button onClick={() => setLocation("/profile")} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white">
+        <div className="mb-2 rounded-xl bg-white p-2 shadow-sm">
+          <div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span className="flex items-center gap-1"><Palette className="size-3" />{activeAI?.name ?? "当前 AI"} 的主题</span><button onClick={() => updateActiveAppearance(DEFAULT_AI_APPEARANCE)} className="text-sky-700 hover:underline">恢复默认</button></div>
+          <div className="flex items-center justify-between gap-1">{(["sky", "violet", "rose", "emerald", "amber"] as const).map(color => <button key={color} onClick={() => updateActiveAppearance({ accent: color })} className={`grid size-6 place-items-center rounded-full ${accent === color ? "ring-2 ring-slate-500 ring-offset-2" : ""}`} aria-label={`选择${color}主题色`}><span className={`size-4 rounded-full bg-[var(--accent-${color})]`} /></button>)}</div>
+          <div className="mt-2 rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览"><div className="flex items-center justify-between"><span>当前配色预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/65 px-2 py-1">这是一条消息气泡</span></div>
+          <div className="mb-1 mt-3 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span>气泡圆角</span><span>当前：{radiusOptions.find(option => option.value === bubbleRadius)?.label}</span></div>
+          <div className="grid grid-cols-3 gap-1.5">{radiusOptions.map(option => <button key={option.value} onClick={() => updateActiveAppearance({ bubbleRadius: option.value })} className={`rounded-lg p-1.5 text-left ${bubbleRadius === option.value ? "bg-sky-100 text-sky-700 ring-1 ring-sky-200" : "bg-slate-50 text-slate-500 hover:bg-slate-100"}`} aria-label={`选择${option.label}气泡圆角`}><span className={`mb-1 flex h-8 w-full items-center justify-center bg-[var(--primary)] px-1 text-[10px] font-medium text-[var(--primary-foreground)] ${option.sampleClass}`}>你好</span><span className="block text-center text-[10px] font-bold">{option.label}</span><span className="block text-center text-[9px] opacity-70">{option.hint}</span></button>)}</div>
+          <div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">聊天背景</div><div className="grid grid-cols-4 gap-1">{([['plain','纯色'],['dots','圆点'],['grid','网格'],['paper','纸张']] as const).map(([value,label]) => <button key={value} onClick={() => updateActiveAppearance({ chatTexture: value })} className={`rounded-lg py-1 text-[10px] ${chatTexture === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 flex items-center gap-1 text-[10px] font-bold tracking-[0.1em] text-slate-400"><Type className="size-3" />字体大小</div><div className="grid grid-cols-3 gap-1"><button onClick={() => updateActiveAppearance({ fontScale: "small" })} className={`rounded-lg py-1 text-[11px] ${fontScale === "small" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>小</button><button onClick={() => updateActiveAppearance({ fontScale: "medium" })} className={`rounded-lg py-1 text-[12px] ${fontScale === "medium" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>标准</button><button onClick={() => updateActiveAppearance({ fontScale: "large" })} className={`rounded-lg py-1 text-sm ${fontScale === "large" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>大</button></div>
+        </div>
+        <button onClick={() => { closeDrawer(); setLocation("/ais"); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white"><Settings className="size-4 text-slate-400" /> 管理我的 AI <ChevronRight className="ml-auto size-4 text-slate-300" /></button>
+        <button onClick={() => { closeDrawer(); setLocation("/profile"); }} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white">
           <span className="grid size-6 place-items-center overflow-hidden rounded-full bg-[#f7dfe7] text-[10px] font-bold text-[#9b5267]">{userProfile.avatar ? <img src={userProfile.avatar} alt="" className="size-full object-cover" /> : userProfile.name.slice(0, 1)}</span>
           <span className="min-w-0 flex-1 truncate">{userProfile.name}</span>
           <UserRound className="size-4 text-slate-400" />
@@ -433,12 +465,12 @@ export default function Home() {
   return (
     <main className="flex h-dvh overflow-hidden bg-[#f3f6f8] text-slate-900">
       <div className="hidden h-full shrink-0 lg:block">{conversationPanel}</div>
-      {drawerOpen && <div className="fixed inset-0 z-50 isolate lg:hidden"><button onClick={() => setDrawerOpen(false)} className="absolute inset-0 z-0 bg-slate-950/15" aria-label="关闭会话面板" />{conversationPanel}</div>}
+      {drawerMounted && <div className={`mobile-drawer fixed inset-0 z-50 isolate lg:hidden ${drawerOpen ? "is-open" : "is-closing"}`}><button onClick={closeDrawer} className="mobile-drawer-backdrop absolute inset-0 z-0 bg-slate-950/15" aria-label="关闭会话面板" />{conversationPanel}</div>}
       <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="pointer-events-none absolute -right-16 top-5 size-52 rounded-full bg-[#dceefa]/70 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 left-1/4 size-56 rounded-full bg-[#f7dfe7]/60 blur-3xl" />
         <header className="relative z-10 flex h-16 shrink-0 items-center justify-between px-4 sm:px-7">
-          <button onClick={() => setDrawerOpen(true)} className="grid size-10 place-items-center rounded-xl bg-white text-slate-600 shadow-sm lg:hidden" aria-label="打开会话面板"><Menu className="size-5" /></button>
+          <button onClick={openDrawer} className="grid size-10 place-items-center rounded-xl bg-white text-slate-600 shadow-sm lg:hidden" aria-label="打开会话面板"><Menu className="size-5" /></button>
           <div className="hidden lg:block"><p className="text-xs font-semibold tracking-[0.16em] text-slate-400">{activeAI?.name ?? "私人 AI"}</p><h1 className="mt-0.5 text-base font-black tracking-tight text-slate-900">{activeConversation?.title ?? "新对话"}</h1></div>
           <div className="ml-auto flex items-center gap-2"><span className={`hidden rounded-full px-3 py-1 text-xs font-medium sm:inline-flex ${isConfigured ? "bg-[#e7f4ed] text-[#39745c]" : "bg-[#fff2e9] text-[#a65b2a]"}`}>{isConfigured ? `${activeAI?.name} 已配置` : "等待配置"}</span><button onClick={() => setLocation("/ais")} className="grid size-10 place-items-center rounded-xl bg-white text-slate-500 shadow-sm hover:text-slate-900" aria-label="管理 AI"><Settings className="size-4" /></button></div>
         </header>
