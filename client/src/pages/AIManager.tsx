@@ -5,11 +5,13 @@ import { Label } from "@/components/ui/label";
 import { checkModelConnection, checkSelectedModel, fetchAvailableModels } from "@/lib/localChat";
 import {
   createAIProfile,
+  DEFAULT_AI_APPEARANCE,
   getAIProfiles,
   getActiveAIId,
   imageFileToDataUrl,
   saveAIProfiles,
   setActiveAIId,
+  type AIAppearance,
   type LocalAIProfile,
 } from "@/lib/localProfiles";
 import {
@@ -21,9 +23,11 @@ import {
   ImagePlus,
   KeyRound,
   Loader2,
+  Palette,
   Plus,
   Settings2,
   Trash2,
+  Type,
   Wifi,
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
@@ -39,6 +43,33 @@ function validateBaseUrl(value: string) {
   if (url.protocol !== "https:") throw new Error("请填写 HTTPS API 地址。");
   return url.toString().replace(/\/$/, "");
 }
+
+const accentOptions: { value: AIAppearance["accent"]; label: string; className: string }[] = [
+  { value: "sky", label: "天空", className: "bg-sky-400" },
+  { value: "violet", label: "紫罗兰", className: "bg-violet-400" },
+  { value: "rose", label: "玫瑰", className: "bg-rose-400" },
+  { value: "emerald", label: "翡翠", className: "bg-emerald-400" },
+  { value: "amber", label: "琥珀", className: "bg-amber-400" },
+];
+
+const fontScaleOptions: { value: AIAppearance["fontScale"]; label: string }[] = [
+  { value: "small", label: "小" },
+  { value: "medium", label: "标准" },
+  { value: "large", label: "大" },
+];
+
+const radiusOptions: { value: AIAppearance["bubbleRadius"]; label: string }[] = [
+  { value: "soft", label: "柔和" },
+  { value: "rounded", label: "圆润" },
+  { value: "pill", label: "胶囊" },
+];
+
+const textureOptions: { value: AIAppearance["chatTexture"]; label: string }[] = [
+  { value: "plain", label: "纯色" },
+  { value: "dots", label: "圆点" },
+  { value: "grid", label: "网格" },
+  { value: "paper", label: "纸张" },
+];
 
 export default function AIManager() {
   const [, setLocation] = useLocation();
@@ -69,6 +100,13 @@ export default function AIManager() {
   function persist(next: LocalAIProfile[]) {
     setProfiles(next);
     saveAIProfiles(next);
+  }
+
+  function saveAppearance(patch: Partial<AIAppearance>) {
+    const appearance = { ...DEFAULT_AI_APPEARANCE, ...form.appearance, ...patch };
+    const updatedAt = Date.now();
+    setForm(previous => ({ ...previous, appearance, updatedAt }));
+    persist(profiles.map(profile => profile.id === form.id ? { ...profile, appearance, updatedAt } : profile));
   }
 
   function addProfile() {
@@ -273,6 +311,47 @@ export default function AIManager() {
                 <Label htmlFor="ai-persona">人物设定（可选）</Label>
                 <Textarea id="ai-persona" value={form.persona} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setForm(previous => ({ ...previous, persona: event.target.value }))} placeholder="例如：你是一位严谨的工程师，回答时先给结论再展开。" className="min-h-24 rounded-xl border-slate-200 bg-slate-50/60" />
               </div>
+
+              <section className="rounded-2xl border border-violet-100 bg-violet-50/45 p-4" aria-labelledby="ai-appearance-title">
+                <div className="flex gap-3">
+                  <div className="grid size-8 shrink-0 place-items-center rounded-xl bg-white text-violet-600 shadow-sm"><Palette className="size-4" /></div>
+                  <div>
+                    <h3 id="ai-appearance-title" className="text-sm font-semibold text-slate-700">这个 AI 的外观</h3>
+                    <p className="mt-0.5 text-xs leading-5 text-slate-500">点击即保存到当前 AI；不同角色可拥有不同视觉标记。</p>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-slate-500">主题色</p>
+                    <div className="flex flex-wrap gap-2">
+                      {accentOptions.map(option => {
+                        const selected = (form.appearance?.accent ?? DEFAULT_AI_APPEARANCE.accent) === option.value;
+                        return <button key={option.value} type="button" onClick={() => saveAppearance({ accent: option.value })} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold transition ${selected ? "border-violet-300 bg-white text-slate-800 shadow-sm" : "border-transparent bg-white/65 text-slate-500 hover:bg-white"}`} aria-pressed={selected}><span className={`size-3 rounded-full ${option.className}`} />{option.label}</button>;
+                      })}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500"><Type className="size-3.5" />字体大小</p>
+                      <div className="grid grid-cols-3 rounded-xl bg-white/70 p-1">
+                        {fontScaleOptions.map(option => { const selected = (form.appearance?.fontScale ?? DEFAULT_AI_APPEARANCE.fontScale) === option.value; return <button key={option.value} type="button" onClick={() => saveAppearance({ fontScale: option.value })} className={`h-8 rounded-lg text-xs font-semibold transition ${selected ? "bg-violet-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"}`} aria-pressed={selected}>{option.label}</button>; })}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs font-semibold text-slate-500">气泡圆角</p>
+                      <div className="grid grid-cols-3 rounded-xl bg-white/70 p-1">
+                        {radiusOptions.map(option => { const selected = (form.appearance?.bubbleRadius ?? DEFAULT_AI_APPEARANCE.bubbleRadius) === option.value; return <button key={option.value} type="button" onClick={() => saveAppearance({ bubbleRadius: option.value })} className={`h-8 rounded-lg text-xs font-semibold transition ${selected ? "bg-violet-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"}`} aria-pressed={selected}>{option.label}</button>; })}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-slate-500">聊天背景</p>
+                    <div className="grid grid-cols-4 gap-1 rounded-xl bg-white/70 p-1">
+                      {textureOptions.map(option => { const selected = (form.appearance?.chatTexture ?? DEFAULT_AI_APPEARANCE.chatTexture) === option.value; return <button key={option.value} type="button" onClick={() => saveAppearance({ chatTexture: option.value })} className={`h-8 rounded-lg text-xs font-semibold transition ${selected ? "bg-violet-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"}`} aria-pressed={selected}>{option.label}</button>; })}
+                    </div>
+                  </div>
+                </div>
+              </section>
 
               <div className="rounded-2xl border border-sky-100 bg-sky-50/50 p-3.5">
                 <div className="flex gap-3"><Wifi className="mt-0.5 size-4 shrink-0 text-[#4a86a8]" /><div><p className="text-sm font-semibold text-slate-700">保存前验证</p><p className="mt-0.5 text-xs leading-5 text-slate-500">可先检查 <code>/models</code> 是否可访问；“测试当前模型”会发送一次不写入聊天记录的最小化请求，以同时验证 Key 和模型名称。</p></div></div>
