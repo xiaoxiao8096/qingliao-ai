@@ -53,10 +53,20 @@ describe("local multi-AI profiles", () => {
 
   it("saves named appearance presets separately from AI profiles", () => {
     const preset = createAppearancePreset("深夜写作", { accent: "violet", fontScale: "large", bubbleRadius: "pill", chatTexture: "paper" });
-    saveAppearancePresets([preset]);
+    const secondPreset = createAppearancePreset("晨间阅读", { accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain" });
+    saveAppearancePresets([secondPreset, preset]);
 
-    expect(getAppearancePresets()).toEqual([preset]);
+    expect(getAppearancePresets().map(item => item.name)).toEqual(["晨间阅读", "深夜写作"]);
     expect(getAIProfiles()[0].appearance?.accent).toBe("sky");
+  });
+
+  it("keeps each AI welcome message separate from other profiles", () => {
+    const first = { ...getAIProfiles()[0], welcome: "你好，我是学习伙伴。" };
+    const second = { ...createAIProfile(), id: "second-ai", name: "写作助手", welcome: "今天想写点什么？" };
+    saveAIProfiles([first, second]);
+
+    expect(getAIProfiles().find(profile => profile.id === first.id)?.welcome).toBe("你好，我是学习伙伴。");
+    expect(getAIProfiles().find(profile => profile.id === "second-ai")?.welcome).toBe("今天想写点什么？");
   });
 
   it("keeps conversations isolated by their owning AI profile", () => {

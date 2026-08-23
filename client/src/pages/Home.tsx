@@ -455,7 +455,7 @@ export default function Home() {
               onFeedback={setFeedback}
               isLoading={isStreaming}
               placeholder={isConfigured ? `向 ${activeAI?.name} 发送消息` : "请先前往管理 AI 配置模型"}
-              emptyStateMessage={isConfigured ? `开始和 ${activeAI?.name} 聊聊` : "先完成当前 AI 的模型设置，再开始对话"}
+              emptyStateMessage={activeAI?.welcome?.trim() || (isConfigured ? `开始和 ${activeAI?.name} 聊聊` : "先完成当前 AI 的模型设置，再开始对话")}
               suggestedPrompts={isConfigured ? ["帮我把这段文字表达得更清楚", "今天有什么值得学习的新知识？"] : undefined}
               assistantName={activeAI?.name}
               assistantAvatar={activeAI?.avatar}

@@ -24,6 +24,8 @@ export type LocalAIProfile = LocalModelSettings & {
   avatar: string;
   /** 该 AI 的人物设定 / 系统提示词（可选） */
   persona: string;
+  /** 该 AI 在新会话空状态展示的专属欢迎语（可选） */
+  welcome: string;
   /** 该 AI 专属外观；旧档案缺省时沿用默认值 */
   appearance?: AIAppearance;
   createdAt: number;
@@ -66,6 +68,7 @@ function defaultAI(): LocalAIProfile {
     apiKey: old.apiKey,
     model: old.model,
     persona: "",
+    welcome: "",
     appearance: DEFAULT_AI_APPEARANCE,
     createdAt: now,
     updatedAt: now,
@@ -129,6 +132,7 @@ export function createAIProfile(): LocalAIProfile {
     apiKey: "",
     model: "",
     persona: "",
+    welcome: "",
     appearance: DEFAULT_AI_APPEARANCE,
     createdAt: now,
     updatedAt: now,

@@ -1,4 +1,7 @@
 import { Button } from "@/components/ui/button";
+import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -25,6 +28,7 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  GripVertical,
   ImagePlus,
   KeyRound,
   Loader2,
@@ -105,6 +109,17 @@ function previewFontSize(value: AIAppearance["fontScale"]) {
   return value === "small" ? "12px" : value === "large" ? "16px" : "14px";
 }
 
+function SortablePresetItem({ preset, summary, onApply, onRemove }: { preset: AppearancePreset; summary: string; onApply: () => void; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: preset.id });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={`flex items-center gap-1 rounded-xl border border-white bg-white/80 p-1 ${isDragging ? "z-10 opacity-70 shadow-lg" : ""}`}>
+      <button type="button" className="grid size-8 shrink-0 touch-none place-items-center rounded-lg text-slate-400 hover:bg-violet-50 hover:text-violet-600" aria-label={`拖动排序主题预设 ${preset.name}`} {...attributes} {...listeners}><GripVertical className="size-4" /></button>
+      <button type="button" onClick={onApply} className="min-w-0 flex-1 rounded-lg px-1 py-1.5 text-left text-xs text-slate-600 hover:bg-violet-50"><span className="block truncate font-semibold text-slate-700">{preset.name}</span><span className="block truncate text-[10px] text-slate-400">{summary}</span></button>
+      <button type="button" onClick={onRemove} className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label={`删除主题预设 ${preset.name}`}><X className="size-3.5" /></button>
+    </div>
+  );
+}
+
 export default function AIManager() {
   const [, setLocation] = useLocation();
   const [profiles, setProfiles] = useState<LocalAIProfile[]>(() => getAIProfiles());
@@ -123,6 +138,7 @@ export default function AIManager() {
   const current = profiles.find(profile => profile.id === editingId) ?? profiles[0];
   const [form, setForm] = useState<LocalAIProfile>(() => current);
   const appearance = appearanceOf(form.appearance);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   useEffect(() => {
     const selected = profiles.find(profile => profile.id === editingId) ?? profiles[0];
@@ -144,6 +160,14 @@ export default function AIManager() {
     const updatedAt = Date.now();
     setForm(previous => ({ ...previous, appearance, updatedAt }));
     persist(profiles.map(profile => profile.id === form.id ? { ...profile, appearance, updatedAt } : profile));
+  }
+
+  function saveWelcome() {
+    const welcome = (form.welcome ?? "").trim().slice(0, 180);
+    const updatedAt = Date.now();
+    setForm(previous => ({ ...previous, welcome, updatedAt }));
+    persist(profiles.map(profile => profile.id === form.id ? { ...profile, welcome, updatedAt } : profile));
+    toast.success(welcome ? "专属欢迎语已保存。" : "已清空专属欢迎语。");
   }
 
   function persistPresets(next: AppearancePreset[]) {
@@ -174,6 +198,15 @@ export default function AIManager() {
 
   function removePreset(id: string) {
     persistPresets(presets.filter(preset => preset.id !== id));
+  }
+
+  function reorderPresets(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = presets.findIndex(preset => preset.id === active.id);
+    const newIndex = presets.findIndex(preset => preset.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    persistPresets(arrayMove(presets, oldIndex, newIndex));
   }
 
   function addProfile() {
@@ -221,6 +254,7 @@ export default function AIManager() {
         name: form.name.trim(),
         model: form.model.trim(),
         apiKey: form.apiKey.trim(),
+        welcome: form.welcome?.trim().slice(0, 180) ?? "",
         baseUrl: validateBaseUrl(form.baseUrl),
         updatedAt: Date.now(),
       };
@@ -378,6 +412,11 @@ export default function AIManager() {
                 <Label htmlFor="ai-persona">人物设定（可选）</Label>
                 <Textarea id="ai-persona" value={form.persona} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setForm(previous => ({ ...previous, persona: event.target.value }))} placeholder="例如：你是一位严谨的工程师，回答时先给结论再展开。" className="min-h-24 rounded-xl border-slate-200 bg-slate-50/60" />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="ai-welcome">专属欢迎语（可选）</Label>
+                <Textarea id="ai-welcome" value={form.welcome ?? ""} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setForm(previous => ({ ...previous, welcome: event.target.value }))} maxLength={180} placeholder="例如：你好，我是你的写作伙伴。今天想写点什么？" className="min-h-20 rounded-xl border-slate-200 bg-slate-50/60" />
+                <div className="flex items-center justify-between gap-3"><p className="text-xs leading-5 text-slate-400">新建对话且尚无消息时，会以此欢迎语替代默认提示。</p><Button type="button" onClick={saveWelcome} variant="outline" size="sm" className="h-8 shrink-0 rounded-lg border-violet-200 bg-white text-violet-700 hover:bg-violet-50">保存欢迎语</Button></div>
+              </div>
 
               <section className="rounded-2xl border border-violet-100 bg-violet-50/45 p-4" aria-labelledby="ai-appearance-title">
                 <div className="flex gap-3">
@@ -434,7 +473,7 @@ export default function AIManager() {
                     <p className="text-xs font-semibold text-slate-600">保存为主题预设</p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">预设只保存在当前 Safari，可快速套用到任意 AI。</p>
                     <div className="mt-2 flex gap-2"><Input value={presetName} onChange={event => setPresetName(event.target.value)} maxLength={24} placeholder="例如：深夜写作" className="h-9 rounded-xl border-violet-100 bg-white text-sm" /><Button type="button" onClick={savePreset} className="h-9 shrink-0 rounded-xl bg-violet-600 px-3 text-xs text-white hover:bg-violet-700"><BookmarkPlus className="mr-1 size-3.5" />保存</Button></div>
-                    {presets.length > 0 ? <div className="mt-3 space-y-1.5" aria-label="已保存主题预设">{presets.map(preset => <div key={preset.id} className="flex items-center gap-1 rounded-xl border border-white bg-white/80 p-1"><button type="button" onClick={() => applyPreset(preset)} className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-violet-50"><span className="block truncate font-semibold text-slate-700">{preset.name}</span><span className="block truncate text-[10px] text-slate-400">{accentOptions.find(option => option.value === preset.appearance.accent)?.label} · {fontScaleOptions.find(option => option.value === preset.appearance.fontScale)?.label}字 · {textureOptions.find(option => option.value === preset.appearance.chatTexture)?.label}</span></button><button type="button" onClick={() => removePreset(preset.id)} className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label={`删除主题预设 ${preset.name}`}><X className="size-3.5" /></button></div>)}</div> : <p className="mt-3 rounded-xl border border-dashed border-violet-100 bg-white/55 px-3 py-2 text-xs text-slate-400">还没有保存的主题预设。</p>}
+                    {presets.length > 0 ? <><p className="mt-3 text-[10px] text-slate-400">按住左侧手柄拖动排序；顺序会保存在当前 Safari。</p><DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={reorderPresets}><SortableContext items={presets.map(preset => preset.id)} strategy={verticalListSortingStrategy}><div className="mt-1.5 space-y-1.5" aria-label="已保存主题预设">{presets.map(preset => <SortablePresetItem key={preset.id} preset={preset} summary={`${accentOptions.find(option => option.value === preset.appearance.accent)?.label} · ${fontScaleOptions.find(option => option.value === preset.appearance.fontScale)?.label}字 · ${textureOptions.find(option => option.value === preset.appearance.chatTexture)?.label}`} onApply={() => applyPreset(preset)} onRemove={() => removePreset(preset.id)} />)}</div></SortableContext></DndContext></> : <p className="mt-3 rounded-xl border border-dashed border-violet-100 bg-white/55 px-3 py-2 text-xs text-slate-400">还没有保存的主题预设。</p>}
                   </div>
                 </div>
               </section>
