@@ -85,6 +85,16 @@ describe("local multi-AI profiles", () => {
     expect(restored?.backgroundPositionY).toBe(100);
   });
 
+  it("restores centered default background layout when saved layout values are absent", () => {
+    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const } };
+    saveAIProfiles([first]);
+    const restored = getAIProfiles()[0].appearance;
+
+    expect(restored?.backgroundScale).toBe(100);
+    expect(restored?.backgroundPositionX).toBe(50);
+    expect(restored?.backgroundPositionY).toBe(50);
+  });
+
   it("provides complete built-in themes ready for one-click application", () => {
     expect(BUILTIN_AI_THEMES.map(theme => theme.name)).toEqual(["清透蓝", "暮光紫", "莓果粉", "森林纸", "暖阳黄"]);
     expect(BUILTIN_AI_THEMES.every(theme => theme.appearance.accent && theme.appearance.bubbleRadius && theme.appearance.chatTexture)).toBe(true);
