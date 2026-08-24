@@ -37,6 +37,15 @@ export const DEFAULT_AI_APPEARANCE: AIAppearance = {
   accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundOpacity: 0.72, backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50,
 };
 
+/** 内置背景排版方案；应用后仍可通过裁切框和滑块微调。 */
+export const BACKGROUND_LAYOUT_PRESETS = [
+  { id: "full", name: "全景", note: "完整居中", layout: { backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50 } },
+  { id: "portrait", name: "人像", note: "上方聚焦", layout: { backgroundScale: 150, backgroundPositionX: 50, backgroundPositionY: 20 } },
+  { id: "left", name: "左侧", note: "左侧主体", layout: { backgroundScale: 150, backgroundPositionX: 0, backgroundPositionY: 50 } },
+  { id: "right", name: "右侧", note: "右侧主体", layout: { backgroundScale: 150, backgroundPositionX: 100, backgroundPositionY: 50 } },
+  { id: "immersive", name: "沉浸", note: "放大居中", layout: { backgroundScale: 185, backgroundPositionX: 50, backgroundPositionY: 50 } },
+] as const;
+
 export const BUILTIN_AI_THEMES = [
   { id: "clear-sky", name: "清透蓝", note: "轻盈、清爽", appearance: { accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain" } },
   { id: "violet-night", name: "暮光紫", note: "专注、沉静", appearance: { accent: "violet", fontScale: "medium", bubbleRadius: "pill", chatTexture: "grid" } },

@@ -25,7 +25,7 @@ import {
 } from "@/lib/localChat";
 import { useThemePreference } from "@/contexts/ThemeContext";
 import { toPersistedAttachment, type Attachment } from "@/lib/attachments";
-import { backgroundImageFileToDataUrl, BUILTIN_AI_THEMES, createCustomPromptShortcut, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getCustomPromptShortcuts, getUserProfile, saveAIProfiles, saveCustomPromptShortcuts, setActiveAIId, type AIAppearance, type CustomPromptShortcut, type LocalAIProfile } from "@/lib/localProfiles";
+import { backgroundImageFileToDataUrl, BACKGROUND_LAYOUT_PRESETS, BUILTIN_AI_THEMES, createCustomPromptShortcut, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getCustomPromptShortcuts, getUserProfile, saveAIProfiles, saveCustomPromptShortcuts, setActiveAIId, type AIAppearance, type CustomPromptShortcut, type LocalAIProfile } from "@/lib/localProfiles";
 import {
   Check,
   ChevronRight,
@@ -104,6 +104,12 @@ const radiusOptions = [
   { value: "pill", label: "胶囊", hint: "全圆角", sampleClass: "rounded-full" },
 ] as const;
 
+function sameBackgroundLayout(appearance: AIAppearance, layout: { backgroundScale: number; backgroundPositionX: number; backgroundPositionY: number }) {
+  return appearance.backgroundScale === layout.backgroundScale
+    && appearance.backgroundPositionX === layout.backgroundPositionX
+    && appearance.backgroundPositionY === layout.backgroundPositionY;
+}
+
 export default function Home() {
   const [, setLocation] = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -126,6 +132,7 @@ export default function Home() {
   const userProfile = getUserProfile();
   const abortRef = useRef<AbortController | null>(null);
   const drawerCloseTimer = useRef<number | null>(null);
+  const cropDragRef = useRef(false);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
   const [isSavingBackground, setIsSavingBackground] = useState(false);
   const [customPromptShortcuts, setCustomPromptShortcuts] = useState<CustomPromptShortcut[]>(() => getCustomPromptShortcuts());
@@ -221,6 +228,29 @@ export default function Home() {
       backgroundPositionY: DEFAULT_AI_APPEARANCE.backgroundPositionY,
     });
     toast.success("背景布局已重置。");
+  }
+
+  function applyBackgroundLayout(layout: { name: string; layout: { backgroundScale: number; backgroundPositionX: number; backgroundPositionY: number } }) {
+    updateActiveAppearance(layout.layout);
+    toast.success(`已应用${layout.name}布局。`);
+  }
+
+  function updateCropPosition(event: React.PointerEvent<HTMLDivElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const positionX = Math.round(Math.min(100, Math.max(0, ((event.clientX - bounds.left) / bounds.width) * 100)));
+    const positionY = Math.round(Math.min(100, Math.max(0, ((event.clientY - bounds.top) / bounds.height) * 100)));
+    updateActiveAppearance({ backgroundPositionX: positionX, backgroundPositionY: positionY });
+  }
+
+  function startCropDrag(event: React.PointerEvent<HTMLDivElement>) {
+    cropDragRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateCropPosition(event);
+  }
+
+  function stopCropDrag(event: React.PointerEvent<HTMLDivElement>) {
+    cropDragRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
   const currentConversations = useMemo(
     () => activeAI ? conversationsForAI(conversations, activeAI.id) : [],
@@ -529,7 +559,42 @@ export default function Home() {
           <div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">聊天背景</div><div className="grid grid-cols-4 gap-1">{([['plain','纯色'],['dots','圆点'],['grid','网格'],['paper','纸张']] as const).map(([value,label]) => <button key={value} onClick={() => updateActiveAppearance({ chatTexture: value })} className={`rounded-lg py-1 text-[10px] ${chatTexture === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 flex items-center gap-1 text-[10px] font-bold tracking-[0.1em] text-slate-400"><Type className="size-3" />字体大小</div><div className="grid grid-cols-3 gap-1"><button onClick={() => updateActiveAppearance({ fontScale: "small" })} className={`rounded-lg py-1 text-[11px] ${fontScale === "small" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>小</button><button onClick={() => updateActiveAppearance({ fontScale: "medium" })} className={`rounded-lg py-1 text-[12px] ${fontScale === "medium" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>标准</button><button onClick={() => updateActiveAppearance({ fontScale: "large" })} className={`rounded-lg py-1 text-sm ${fontScale === "large" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>大</button></div>
           <input ref={backgroundInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={selectBackground} className="hidden" aria-label="选择自定义聊天背景" />
           <div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => backgroundInputRef.current?.click()} disabled={isSavingBackground} className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60">{isSavingBackground ? "处理背景中…" : currentAppearance.backgroundImage ? "更换自定义背景" : "选择自定义背景"}</button>{currentAppearance.backgroundImage && <><button type="button" onClick={resetBackgroundLayout} className="rounded-lg px-2 py-1.5 text-[10px] font-medium text-sky-700 hover:bg-sky-50">重置布局</button><button type="button" onClick={() => updateActiveAppearance({ backgroundImage: undefined })} className="rounded-lg px-2 py-1.5 text-[10px] font-medium text-rose-600 hover:bg-rose-50">清除</button></>}</div>
-          {currentAppearance.backgroundImage && <div className="mt-3 space-y-2 rounded-lg bg-slate-50 p-2"><label className="block text-[10px] font-medium text-slate-600">背景模糊 <span className="float-right text-slate-400">{currentAppearance.backgroundBlur}px</span><input aria-label="背景模糊度" type="range" min="0" max="16" step="1" value={currentAppearance.backgroundBlur} onChange={event => updateActiveAppearance({ backgroundBlur: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">文字保护层 <span className="float-right text-slate-400">{Math.round((currentAppearance.backgroundOpacity ?? 0.72) * 100)}%</span><input aria-label="背景文字保护层透明度" type="range" min="0.18" max="0.92" step="0.02" value={currentAppearance.backgroundOpacity ?? 0.72} onChange={event => updateActiveAppearance({ backgroundOpacity: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">背景缩放 <span className="float-right text-slate-400">{currentAppearance.backgroundScale}%</span><input aria-label="背景缩放比例" type="range" min="100" max="200" step="5" value={currentAppearance.backgroundScale} onChange={event => updateActiveAppearance({ backgroundScale: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">水平位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionX}%</span><input aria-label="背景水平位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionX} onChange={event => updateActiveAppearance({ backgroundPositionX: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">垂直位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionY}%</span><input aria-label="背景垂直位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionY} onChange={event => updateActiveAppearance({ backgroundPositionY: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div></div>}
+          {currentAppearance.backgroundImage && <div className="mt-3 space-y-2 rounded-lg bg-slate-50 p-2">
+            <div>
+              <div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.08em] text-slate-500"><span>可视化裁切</span><span className="font-medium tracking-normal text-slate-400">拖动定位焦点</span></div>
+              <div
+                className="relative h-28 touch-none select-none overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-inner"
+                role="application"
+                aria-label="背景可视化裁切框，拖动可调整背景显示位置"
+                onClick={updateCropPosition}
+                onPointerDown={startCropDrag}
+                onPointerMove={event => { if (cropDragRef.current) updateCropPosition(event); }}
+                onPointerUp={stopCropDrag}
+                onPointerCancel={stopCropDrag}
+                style={{ backgroundImage: `url("${currentAppearance.backgroundImage}")`, backgroundPosition: `${currentAppearance.backgroundPositionX}% ${currentAppearance.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${currentAppearance.backgroundScale}%` }}
+              >
+                <div className="pointer-events-none absolute inset-x-4 inset-y-3 rounded-md border-2 border-white/90 shadow-[0_0_0_999px_rgb(15_23_42/0.16)]">
+                  <span className="absolute bottom-0 left-1/3 top-0 border-l border-dashed border-white/70" />
+                  <span className="absolute bottom-0 left-2/3 top-0 border-l border-dashed border-white/70" />
+                  <span className="absolute inset-x-0 top-1/3 border-t border-dashed border-white/70" />
+                  <span className="absolute inset-x-0 top-2/3 border-t border-dashed border-white/70" />
+                </div>
+                <span className="pointer-events-none absolute size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-slate-900/35 shadow-sm" style={{ left: `${currentAppearance.backgroundPositionX}%`, top: `${currentAppearance.backgroundPositionY}%` }} />
+                <span className="pointer-events-none absolute bottom-1 right-2 rounded bg-slate-950/55 px-1.5 py-0.5 text-[9px] font-medium text-white">拖动定位</span>
+              </div>
+            </div>
+            <div>
+              <div className="mb-1 text-[10px] font-bold tracking-[0.08em] text-slate-500">布局预设</div>
+              <div className="grid grid-cols-3 gap-1.5">{BACKGROUND_LAYOUT_PRESETS.map(preset => {
+                const active = sameBackgroundLayout(currentAppearance, preset.layout);
+                return <button key={preset.id} type="button" onClick={() => applyBackgroundLayout(preset)} className={`overflow-hidden rounded-lg border text-left transition ${active ? "border-sky-400 bg-sky-50 ring-1 ring-sky-200" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`} aria-pressed={active} aria-label={`应用${preset.name}背景布局`}>
+                  <span className="block h-7 bg-slate-200" style={{ backgroundImage: `linear-gradient(rgb(15 23 42 / 0.15), rgb(15 23 42 / 0.15)), url("${currentAppearance.backgroundImage}")`, backgroundPosition: `${preset.layout.backgroundPositionX}% ${preset.layout.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${preset.layout.backgroundScale}%` }} />
+                  <span className="block px-1.5 py-1 text-[9px] leading-tight text-slate-600"><b className="block text-slate-700">{preset.name}</b><span className="text-slate-400">{preset.note}</span></span>
+                </button>;
+              })}</div>
+            </div>
+            <label className="block text-[10px] font-medium text-slate-600">背景模糊 <span className="float-right text-slate-400">{currentAppearance.backgroundBlur}px</span><input aria-label="背景模糊度" type="range" min="0" max="16" step="1" value={currentAppearance.backgroundBlur} onChange={event => updateActiveAppearance({ backgroundBlur: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">文字保护层 <span className="float-right text-slate-400">{Math.round((currentAppearance.backgroundOpacity ?? 0.72) * 100)}%</span><input aria-label="背景文字保护层透明度" type="range" min="0.18" max="0.92" step="0.02" value={currentAppearance.backgroundOpacity ?? 0.72} onChange={event => updateActiveAppearance({ backgroundOpacity: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">背景缩放 <span className="float-right text-slate-400">{currentAppearance.backgroundScale}%</span><input aria-label="背景缩放比例" type="range" min="100" max="200" step="5" value={currentAppearance.backgroundScale} onChange={event => updateActiveAppearance({ backgroundScale: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">水平位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionX}%</span><input aria-label="背景水平位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionX} onChange={event => updateActiveAppearance({ backgroundPositionX: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">垂直位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionY}%</span><input aria-label="背景垂直位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionY} onChange={event => updateActiveAppearance({ backgroundPositionY: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div>
+          </div>}
         </div>
         <div className="mb-2 rounded-xl bg-white p-2 shadow-sm"><div className="flex items-center justify-between"><span className="text-[10px] font-bold tracking-[0.1em] text-slate-400">我的提示词</span><button type="button" onClick={() => { setIsPromptEditorOpen(open => !open); if (isPromptEditorOpen) resetPromptEditor(); }} className="text-[10px] font-medium text-sky-700 hover:underline">{isPromptEditorOpen ? "收起" : "管理"}</button></div>{isPromptEditorOpen && <div className="mt-2 space-y-2"><input value={promptTitle} onChange={event => setPromptTitle(event.target.value)} maxLength={24} placeholder="提示词名称，例如：周报整理" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-sky-300" /><textarea value={promptContent} onChange={event => setPromptContent(event.target.value)} maxLength={600} placeholder="输入点击后要填入对话框的内容" rows={3} className="w-full resize-none rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-sky-300" /><div className="flex gap-2"><button type="button" onClick={savePromptShortcut} className="flex-1 rounded-lg bg-sky-600 px-2 py-1.5 text-xs font-medium text-white hover:bg-sky-700">{editingPromptId ? "更新提示词" : "添加提示词"}</button>{editingPromptId && <button type="button" onClick={resetPromptEditor} className="rounded-lg px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-100">取消</button>}</div><div className="space-y-1">{customPromptShortcuts.length === 0 ? <p className="py-1 text-center text-[10px] text-slate-400">还没有自定义提示词</p> : customPromptShortcuts.map(item => <div key={item.id} className="flex items-center gap-1 rounded-lg bg-slate-50 p-1.5"><button type="button" onClick={() => editPromptShortcut(item)} className="min-w-0 flex-1 truncate text-left text-xs text-slate-700">{item.title}</button><button type="button" onClick={() => editPromptShortcut(item)} className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`编辑 ${item.title}`}><Pencil className="size-3" /></button><button type="button" onClick={() => removePromptShortcut(item.id)} className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label={`删除 ${item.title}`}><Trash2 className="size-3" /></button></div>)}</div></div>}</div>
         <button onClick={() => { closeDrawer(); setLocation("/ais"); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white"><Settings className="size-4 text-slate-400" /> 管理我的 AI <ChevronRight className="ml-auto size-4 text-slate-300" /></button>

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendLocalMessages, conversationsForAI, createConversation } from "./localChat";
 import {
+  BACKGROUND_LAYOUT_PRESETS,
   BUILTIN_AI_THEMES,
   DEFAULT_PROMPT_SHORTCUTS,
   createCustomPromptShortcut,
@@ -93,6 +94,13 @@ describe("local multi-AI profiles", () => {
     expect(restored?.backgroundScale).toBe(100);
     expect(restored?.backgroundPositionX).toBe(50);
     expect(restored?.backgroundPositionY).toBe(50);
+  });
+
+  it("provides common background layout presets with usable crop coordinates", () => {
+    expect(BACKGROUND_LAYOUT_PRESETS.map(preset => preset.name)).toEqual(["全景", "人像", "左侧", "右侧", "沉浸"]);
+    expect(BACKGROUND_LAYOUT_PRESETS[0].layout).toEqual({ backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50 });
+    expect(BACKGROUND_LAYOUT_PRESETS.find(preset => preset.id === "portrait")?.layout).toEqual({ backgroundScale: 150, backgroundPositionX: 50, backgroundPositionY: 20 });
+    expect(BACKGROUND_LAYOUT_PRESETS.every(preset => preset.layout.backgroundScale >= 100 && preset.layout.backgroundScale <= 200 && preset.layout.backgroundPositionX >= 0 && preset.layout.backgroundPositionX <= 100 && preset.layout.backgroundPositionY >= 0 && preset.layout.backgroundPositionY <= 100)).toBe(true);
   });
 
   it("provides complete built-in themes ready for one-click application", () => {
