@@ -60,6 +60,10 @@ export type AIChatBoxProps = {
   backgroundBlur?: number;
   /** 背景图片上的浅色保护层透明度。 */
   backgroundOpacity?: number;
+  /** 背景图片缩放比例与定位。 */
+  backgroundScale?: number;
+  backgroundPositionX?: number;
+  backgroundPositionY?: number;
   /** Optional local-storage key used to restore an unsent draft. */
   draftKey?: string;
 };
@@ -117,6 +121,9 @@ export function AIChatBox({
   backgroundImage,
   backgroundBlur = 0,
   backgroundOpacity = 0.72,
+  backgroundScale = 100,
+  backgroundPositionX = 50,
+  backgroundPositionY = 50,
   draftKey,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
@@ -316,7 +323,7 @@ export function AIChatBox({
     >
       {/* Messages Area */}
       <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden">
-        {backgroundImage && <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105 bg-cover bg-center" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), url("${backgroundImage}")`, filter: `blur(${backgroundBlur}px)` }} />}
+        {backgroundImage && <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), url("${backgroundImage}")`, backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px)` }} />}
         <div className="relative z-[1] h-full">
           {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">

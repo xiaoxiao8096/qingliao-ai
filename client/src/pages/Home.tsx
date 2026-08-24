@@ -25,7 +25,7 @@ import {
 } from "@/lib/localChat";
 import { useThemePreference } from "@/contexts/ThemeContext";
 import { toPersistedAttachment, type Attachment } from "@/lib/attachments";
-import { backgroundImageFileToDataUrl, BUILTIN_AI_THEMES, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getUserProfile, saveAIProfiles, setActiveAIId, type AIAppearance, type LocalAIProfile } from "@/lib/localProfiles";
+import { backgroundImageFileToDataUrl, BUILTIN_AI_THEMES, createCustomPromptShortcut, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getCustomPromptShortcuts, getUserProfile, saveAIProfiles, saveCustomPromptShortcuts, setActiveAIId, type AIAppearance, type CustomPromptShortcut, type LocalAIProfile } from "@/lib/localProfiles";
 import {
   Check,
   ChevronRight,
@@ -128,6 +128,11 @@ export default function Home() {
   const drawerCloseTimer = useRef<number | null>(null);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
   const [isSavingBackground, setIsSavingBackground] = useState(false);
+  const [customPromptShortcuts, setCustomPromptShortcuts] = useState<CustomPromptShortcut[]>(() => getCustomPromptShortcuts());
+  const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [promptTitle, setPromptTitle] = useState("");
+  const [promptContent, setPromptContent] = useState("");
   useEffect(() => () => { abortRef.current?.abort(); if (drawerCloseTimer.current !== null) window.clearTimeout(drawerCloseTimer.current); }, []);
   const activeAI = profiles.find(profile => profile.id === activeAIId) ?? profiles[0];
 
@@ -151,6 +156,46 @@ export default function Home() {
     if (patch.fontScale) setFontScale(patch.fontScale);
     if (patch.bubbleRadius) setBubbleRadius(patch.bubbleRadius);
     if (patch.chatTexture) setChatTexture(patch.chatTexture);
+  }
+
+  const promptShortcuts = useMemo(() => [...DEFAULT_PROMPT_SHORTCUTS, ...customPromptShortcuts], [customPromptShortcuts]);
+
+  function resetPromptEditor() {
+    setEditingPromptId(null);
+    setPromptTitle("");
+    setPromptContent("");
+  }
+
+  function savePromptShortcut() {
+    const title = promptTitle.trim();
+    const prompt = promptContent.trim();
+    if (!title || !prompt) {
+      toast.error("请填写提示词名称和内容。");
+      return;
+    }
+    const now = Date.now();
+    const next = editingPromptId
+      ? customPromptShortcuts.map(item => item.id === editingPromptId ? { ...item, title: title.slice(0, 24), prompt: prompt.slice(0, 600), updatedAt: now } : item)
+      : [...customPromptShortcuts, createCustomPromptShortcut(title, prompt)];
+    setCustomPromptShortcuts(next);
+    saveCustomPromptShortcuts(next);
+    toast.success(editingPromptId ? "提示词已更新。" : "专属提示词已添加。");
+    resetPromptEditor();
+  }
+
+  function editPromptShortcut(item: CustomPromptShortcut) {
+    setEditingPromptId(item.id);
+    setPromptTitle(item.title);
+    setPromptContent(item.prompt);
+    setIsPromptEditorOpen(true);
+  }
+
+  function removePromptShortcut(id: string) {
+    const next = customPromptShortcuts.filter(item => item.id !== id);
+    setCustomPromptShortcuts(next);
+    saveCustomPromptShortcuts(next);
+    if (editingPromptId === id) resetPromptEditor();
+    toast.success("专属提示词已删除。");
   }
 
   async function selectBackground(event: ChangeEvent<HTMLInputElement>) {
@@ -467,7 +512,7 @@ export default function Home() {
         <div className="mb-2 rounded-xl bg-white p-2 shadow-sm">
           <div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span className="flex items-center gap-1"><Palette className="size-3" />{activeAI?.name ?? "当前 AI"} 的主题</span><button onClick={() => updateActiveAppearance(DEFAULT_AI_APPEARANCE)} className="text-sky-700 hover:underline">恢复默认</button></div>
           <div className="flex items-center justify-between gap-1">{(["sky", "violet", "rose", "emerald", "amber"] as const).map(color => <button key={color} onClick={() => updateActiveAppearance({ accent: color })} className={`grid size-6 place-items-center rounded-full ${accent === color ? "ring-2 ring-slate-500 ring-offset-2" : ""}`} aria-label={`选择${color}主题色`}><span className={`size-4 rounded-full bg-[var(--accent-${color})]`} /></button>)}</div>
-          <div className="mt-2 overflow-hidden rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览" style={currentAppearance.backgroundImage ? { backgroundImage: `linear-gradient(rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.62)), url("${currentAppearance.backgroundImage}")`, backgroundPosition: "center", backgroundSize: "cover" } : undefined}><div className="flex items-center justify-between"><span>当前主题预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/75 px-2 py-1 text-slate-700">这是一条消息气泡</span></div>
+          <div className="mt-2 overflow-hidden rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览" style={currentAppearance.backgroundImage ? { backgroundImage: `linear-gradient(rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.62)), url("${currentAppearance.backgroundImage}")`, backgroundPosition: `${currentAppearance.backgroundPositionX}% ${currentAppearance.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${currentAppearance.backgroundScale}%` } : undefined}><div className="flex items-center justify-between"><span>当前主题预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/75 px-2 py-1 text-slate-700">这是一条消息气泡</span></div>
           <div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">一键主题方案</div>
           <div className="grid grid-cols-5 gap-1">{BUILTIN_AI_THEMES.map(theme => <button key={theme.id} onClick={() => updateActiveAppearance(theme.appearance)} className="group rounded-lg px-1 pb-1 pt-1 text-center hover:bg-slate-100" aria-label={`应用${theme.name}主题`} title={`${theme.name}：${theme.note}`}><span className="mx-auto block size-6 rounded-full ring-1 ring-black/5 group-hover:scale-110" style={{ backgroundColor: `var(--accent-${theme.appearance.accent})` }} /><span className="mt-1 block truncate text-[9px] text-slate-500">{theme.name}</span></button>)}</div>
           <div className="mb-1 mt-3 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span>气泡圆角</span><span>当前：{radiusOptions.find(option => option.value === bubbleRadius)?.label}</span></div>
@@ -475,8 +520,9 @@ export default function Home() {
           <div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">聊天背景</div><div className="grid grid-cols-4 gap-1">{([['plain','纯色'],['dots','圆点'],['grid','网格'],['paper','纸张']] as const).map(([value,label]) => <button key={value} onClick={() => updateActiveAppearance({ chatTexture: value })} className={`rounded-lg py-1 text-[10px] ${chatTexture === value ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>{label}</button>)}</div><div className="mb-1 mt-3 flex items-center gap-1 text-[10px] font-bold tracking-[0.1em] text-slate-400"><Type className="size-3" />字体大小</div><div className="grid grid-cols-3 gap-1"><button onClick={() => updateActiveAppearance({ fontScale: "small" })} className={`rounded-lg py-1 text-[11px] ${fontScale === "small" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>小</button><button onClick={() => updateActiveAppearance({ fontScale: "medium" })} className={`rounded-lg py-1 text-[12px] ${fontScale === "medium" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>标准</button><button onClick={() => updateActiveAppearance({ fontScale: "large" })} className={`rounded-lg py-1 text-sm ${fontScale === "large" ? "bg-sky-100 text-sky-700" : "hover:bg-slate-100"}`}>大</button></div>
           <input ref={backgroundInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={selectBackground} className="hidden" aria-label="选择自定义聊天背景" />
           <div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => backgroundInputRef.current?.click()} disabled={isSavingBackground} className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60">{isSavingBackground ? "处理背景中…" : currentAppearance.backgroundImage ? "更换自定义背景" : "选择自定义背景"}</button>{currentAppearance.backgroundImage && <button type="button" onClick={() => updateActiveAppearance({ backgroundImage: undefined })} className="rounded-lg px-2 py-1.5 text-[10px] font-medium text-rose-600 hover:bg-rose-50">清除</button>}</div>
-          {currentAppearance.backgroundImage && <div className="mt-3 space-y-2 rounded-lg bg-slate-50 p-2"><label className="block text-[10px] font-medium text-slate-600">背景模糊 <span className="float-right text-slate-400">{currentAppearance.backgroundBlur}px</span><input aria-label="背景模糊度" type="range" min="0" max="16" step="1" value={currentAppearance.backgroundBlur} onChange={event => updateActiveAppearance({ backgroundBlur: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">文字保护层 <span className="float-right text-slate-400">{Math.round((currentAppearance.backgroundOpacity ?? 0.72) * 100)}%</span><input aria-label="背景文字保护层透明度" type="range" min="0.18" max="0.92" step="0.02" value={currentAppearance.backgroundOpacity ?? 0.72} onChange={event => updateActiveAppearance({ backgroundOpacity: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div>}
+          {currentAppearance.backgroundImage && <div className="mt-3 space-y-2 rounded-lg bg-slate-50 p-2"><label className="block text-[10px] font-medium text-slate-600">背景模糊 <span className="float-right text-slate-400">{currentAppearance.backgroundBlur}px</span><input aria-label="背景模糊度" type="range" min="0" max="16" step="1" value={currentAppearance.backgroundBlur} onChange={event => updateActiveAppearance({ backgroundBlur: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">文字保护层 <span className="float-right text-slate-400">{Math.round((currentAppearance.backgroundOpacity ?? 0.72) * 100)}%</span><input aria-label="背景文字保护层透明度" type="range" min="0.18" max="0.92" step="0.02" value={currentAppearance.backgroundOpacity ?? 0.72} onChange={event => updateActiveAppearance({ backgroundOpacity: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">背景缩放 <span className="float-right text-slate-400">{currentAppearance.backgroundScale}%</span><input aria-label="背景缩放比例" type="range" min="100" max="200" step="5" value={currentAppearance.backgroundScale} onChange={event => updateActiveAppearance({ backgroundScale: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">水平位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionX}%</span><input aria-label="背景水平位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionX} onChange={event => updateActiveAppearance({ backgroundPositionX: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">垂直位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionY}%</span><input aria-label="背景垂直位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionY} onChange={event => updateActiveAppearance({ backgroundPositionY: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div></div>}
         </div>
+        <div className="mb-2 rounded-xl bg-white p-2 shadow-sm"><div className="flex items-center justify-between"><span className="text-[10px] font-bold tracking-[0.1em] text-slate-400">我的提示词</span><button type="button" onClick={() => { setIsPromptEditorOpen(open => !open); if (isPromptEditorOpen) resetPromptEditor(); }} className="text-[10px] font-medium text-sky-700 hover:underline">{isPromptEditorOpen ? "收起" : "管理"}</button></div>{isPromptEditorOpen && <div className="mt-2 space-y-2"><input value={promptTitle} onChange={event => setPromptTitle(event.target.value)} maxLength={24} placeholder="提示词名称，例如：周报整理" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-sky-300" /><textarea value={promptContent} onChange={event => setPromptContent(event.target.value)} maxLength={600} placeholder="输入点击后要填入对话框的内容" rows={3} className="w-full resize-none rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-sky-300" /><div className="flex gap-2"><button type="button" onClick={savePromptShortcut} className="flex-1 rounded-lg bg-sky-600 px-2 py-1.5 text-xs font-medium text-white hover:bg-sky-700">{editingPromptId ? "更新提示词" : "添加提示词"}</button>{editingPromptId && <button type="button" onClick={resetPromptEditor} className="rounded-lg px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-100">取消</button>}</div><div className="space-y-1">{customPromptShortcuts.length === 0 ? <p className="py-1 text-center text-[10px] text-slate-400">还没有自定义提示词</p> : customPromptShortcuts.map(item => <div key={item.id} className="flex items-center gap-1 rounded-lg bg-slate-50 p-1.5"><button type="button" onClick={() => editPromptShortcut(item)} className="min-w-0 flex-1 truncate text-left text-xs text-slate-700">{item.title}</button><button type="button" onClick={() => editPromptShortcut(item)} className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`编辑 ${item.title}`}><Pencil className="size-3" /></button><button type="button" onClick={() => removePromptShortcut(item.id)} className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label={`删除 ${item.title}`}><Trash2 className="size-3" /></button></div>)}</div></div>}</div>
         <button onClick={() => { closeDrawer(); setLocation("/ais"); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white"><Settings className="size-4 text-slate-400" /> 管理我的 AI <ChevronRight className="ml-auto size-4 text-slate-300" /></button>
         <button onClick={() => { closeDrawer(); setLocation("/profile"); }} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-white">
           <span className="grid size-6 place-items-center overflow-hidden rounded-full bg-[#f7dfe7] text-[10px] font-bold text-[#9b5267]">{userProfile.avatar ? <img src={userProfile.avatar} alt="" className="size-full object-cover" /> : userProfile.name.slice(0, 1)}</span>
@@ -521,7 +567,10 @@ export default function Home() {
               backgroundImage={currentAppearance.backgroundImage}
               backgroundBlur={currentAppearance.backgroundBlur}
               backgroundOpacity={currentAppearance.backgroundOpacity}
-              promptShortcuts={DEFAULT_PROMPT_SHORTCUTS}
+              backgroundScale={currentAppearance.backgroundScale}
+              backgroundPositionX={currentAppearance.backgroundPositionX}
+              backgroundPositionY={currentAppearance.backgroundPositionY}
+              promptShortcuts={promptShortcuts}
               draftKey={`${activeAI?.id ?? "no-ai"}:${activeConversationId ?? "new"}`}
             />
           </div>

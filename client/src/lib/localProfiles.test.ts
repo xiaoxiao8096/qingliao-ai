@@ -3,14 +3,17 @@ import { appendLocalMessages, conversationsForAI, createConversation } from "./l
 import {
   BUILTIN_AI_THEMES,
   DEFAULT_PROMPT_SHORTCUTS,
+  createCustomPromptShortcut,
   createAppearancePreset,
   createAIProfile,
   getActiveAIId,
   getAIProfiles,
   getAppearancePresets,
   getUserProfile,
+  getCustomPromptShortcuts,
   saveAppearancePresets,
   saveAIProfiles,
+  saveCustomPromptShortcuts,
   saveUserProfile,
   setActiveAIId,
 } from "./localProfiles";
@@ -72,6 +75,16 @@ describe("local multi-AI profiles", () => {
     expect(restored?.backgroundOpacity).toBe(0.18);
   });
 
+  it("normalizes saved background scale and position for each AI", () => {
+    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundScale: 360, backgroundPositionX: -20, backgroundPositionY: 130 } };
+    saveAIProfiles([first]);
+    const restored = getAIProfiles()[0].appearance;
+
+    expect(restored?.backgroundScale).toBe(200);
+    expect(restored?.backgroundPositionX).toBe(0);
+    expect(restored?.backgroundPositionY).toBe(100);
+  });
+
   it("provides complete built-in themes ready for one-click application", () => {
     expect(BUILTIN_AI_THEMES.map(theme => theme.name)).toEqual(["清透蓝", "暮光紫", "莓果粉", "森林纸", "暖阳黄"]);
     expect(BUILTIN_AI_THEMES.every(theme => theme.appearance.accent && theme.appearance.bubbleRadius && theme.appearance.chatTexture)).toBe(true);
@@ -80,6 +93,14 @@ describe("local multi-AI profiles", () => {
   it("provides editable prompt shortcuts for common chat starts", () => {
     expect(DEFAULT_PROMPT_SHORTCUTS).toHaveLength(6);
     expect(DEFAULT_PROMPT_SHORTCUTS.every(shortcut => shortcut.title && shortcut.prompt.endsWith("\n\n"))).toBe(true);
+  });
+
+  it("saves custom prompt shortcuts separately from AI profiles", () => {
+    const shortcut = createCustomPromptShortcut("周报整理", "请帮我整理本周工作周报：\n\n");
+    saveCustomPromptShortcuts([shortcut]);
+
+    expect(getCustomPromptShortcuts()).toMatchObject([{ id: shortcut.id, title: "周报整理", prompt: "请帮我整理本周工作周报：" }]);
+    expect(getAIProfiles()[0].name).toBe("我的 AI");
   });
 
   it("saves named appearance presets separately from AI profiles", () => {

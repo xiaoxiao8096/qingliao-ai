@@ -11,6 +11,11 @@ export type AIAppearance = {
   backgroundBlur?: number;
   /** 背景上的浅色保护层透明度（0-1），数值越大文字越清晰。 */
   backgroundOpacity?: number;
+  /** 背景图片的缩放比例（百分比）。 */
+  backgroundScale?: number;
+  /** 背景图片的水平与垂直定位（百分比）。 */
+  backgroundPositionX?: number;
+  backgroundPositionY?: number;
 };
 
 export type AppearancePreset = {
@@ -20,8 +25,16 @@ export type AppearancePreset = {
   createdAt: number;
 };
 
+export type CustomPromptShortcut = {
+  id: string;
+  title: string;
+  prompt: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export const DEFAULT_AI_APPEARANCE: AIAppearance = {
-  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundOpacity: 0.72,
+  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundOpacity: 0.72, backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50,
 };
 
 export const BUILTIN_AI_THEMES = [
@@ -64,6 +77,7 @@ const AI_PROFILES_KEY = "qingliao.personal.ai-profiles.v1";
 const ACTIVE_AI_KEY = "qingliao.personal.active-ai.v1";
 const USER_PROFILE_KEY = "qingliao.personal.user-profile.v1";
 const APPEARANCE_PRESETS_KEY = "qingliao.personal.appearance-presets.v1";
+const CUSTOM_PROMPT_SHORTCUTS_KEY = "qingliao.personal.prompt-shortcuts.v1";
 export const DEFAULT_AI_ID = "default-ai";
 
 function storage() {
@@ -106,11 +120,40 @@ function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
   const appearance = { ...DEFAULT_AI_APPEARANCE, ...value };
   const blur = Number(value?.backgroundBlur);
   const opacity = Number(value?.backgroundOpacity);
+  const scale = Number(value?.backgroundScale);
+  const positionX = Number(value?.backgroundPositionX);
+  const positionY = Number(value?.backgroundPositionY);
   return {
     ...appearance,
     backgroundBlur: Number.isFinite(blur) ? Math.min(16, Math.max(0, blur)) : 0,
     backgroundOpacity: Number.isFinite(opacity) ? Math.min(0.92, Math.max(0.18, opacity)) : 0.72,
+    backgroundScale: Number.isFinite(scale) ? Math.min(200, Math.max(100, scale)) : 100,
+    backgroundPositionX: Number.isFinite(positionX) ? Math.min(100, Math.max(0, positionX)) : 50,
+    backgroundPositionY: Number.isFinite(positionY) ? Math.min(100, Math.max(0, positionY)) : 50,
   };
+}
+
+function normalizedPromptShortcut(value: Partial<CustomPromptShortcut>): CustomPromptShortcut | null {
+  const title = value.title?.trim().slice(0, 24) ?? "";
+  const prompt = value.prompt?.trim().slice(0, 600) ?? "";
+  if (!title || !prompt || !value.id) return null;
+  const now = Date.now();
+  return { id: value.id, title, prompt, createdAt: Number(value.createdAt) || now, updatedAt: Number(value.updatedAt) || now };
+}
+
+export function getCustomPromptShortcuts(): CustomPromptShortcut[] {
+  const saved = parse<CustomPromptShortcut[]>(CUSTOM_PROMPT_SHORTCUTS_KEY, []);
+  if (!Array.isArray(saved)) return [];
+  return saved.map(normalizedPromptShortcut).filter((item): item is CustomPromptShortcut => Boolean(item)).slice(0, 12);
+}
+
+export function saveCustomPromptShortcuts(shortcuts: CustomPromptShortcut[]) {
+  storage()?.setItem(CUSTOM_PROMPT_SHORTCUTS_KEY, JSON.stringify(shortcuts.slice(0, 12)));
+}
+
+export function createCustomPromptShortcut(title: string, prompt: string): CustomPromptShortcut {
+  const now = Date.now();
+  return { id: createProfileId(), title: title.trim().slice(0, 24), prompt: prompt.trim().slice(0, 600), createdAt: now, updatedAt: now };
 }
 
 export function getAppearancePresets(): AppearancePreset[] {
