@@ -56,9 +56,18 @@ export type BackgroundFilter = {
 export type CustomBackgroundFilterPreset = {
   id: string;
   name: string;
+  category: string;
   filter: BackgroundFilter;
   createdAt: number;
   updatedAt: number;
+};
+
+export type BackgroundPlanExport = {
+  format: "qingliao-background-plan";
+  version: 1;
+  exportedAt: number;
+  background: Pick<AIAppearance, "backgroundBlur" | "backgroundBrightness" | "backgroundContrast" | "backgroundSaturation" | "backgroundTemperature" | "backgroundVignette" | "backgroundGrain" | "backgroundGradientStart" | "backgroundGradientEnd" | "backgroundGradientOpacity" | "backgroundGradientAngle" | "backgroundOpacity" | "backgroundScale" | "backgroundPositionX" | "backgroundPositionY">;
+  customFilterPresets: CustomBackgroundFilterPreset[];
 };
 
 export type CustomPromptShortcut = {
@@ -88,6 +97,15 @@ export const BACKGROUND_FILTER_PRESETS = [
   { id: "vintage", name: "复古", note: "暖调柔和", filter: { backgroundBlur: 1, backgroundBrightness: 105, backgroundContrast: 85, backgroundSaturation: 75, backgroundTemperature: 45, backgroundVignette: 20, backgroundGrain: 22, backgroundGradientStart: "#c08457", backgroundGradientEnd: "#5c4033", backgroundGradientOpacity: 0.18, backgroundGradientAngle: 135 } },
   { id: "mono", name: "黑白", note: "高对比", filter: { backgroundBlur: 0, backgroundBrightness: 105, backgroundContrast: 125, backgroundSaturation: 0, backgroundTemperature: 0, backgroundVignette: 18, backgroundGrain: 8, backgroundGradientStart: "#64748b", backgroundGradientEnd: "#0f172a", backgroundGradientOpacity: 0.1, backgroundGradientAngle: 135 } },
   { id: "cinematic", name: "电影感", note: "冷调质感", filter: { backgroundBlur: 0, backgroundBrightness: 90, backgroundContrast: 125, backgroundSaturation: 78, backgroundTemperature: -35, backgroundVignette: 35, backgroundGrain: 16, backgroundGradientStart: "#0f4c5c", backgroundGradientEnd: "#1e293b", backgroundGradientOpacity: 0.24, backgroundGradientAngle: 145 } },
+] as const;
+
+/** 常用渐变叠色组合；应用后仍可通过颜色和滑块继续微调。 */
+export const BACKGROUND_GRADIENT_PRESETS = [
+  { id: "none", name: "无叠色", note: "保留原图", gradient: { backgroundGradientStart: "#4f8fd8", backgroundGradientEnd: "#8b5cf6", backgroundGradientOpacity: 0, backgroundGradientAngle: 135 } },
+  { id: "twilight", name: "暮光", note: "紫蓝沉静", gradient: { backgroundGradientStart: "#312e81", backgroundGradientEnd: "#8b5cf6", backgroundGradientOpacity: 0.28, backgroundGradientAngle: 145 } },
+  { id: "rose", name: "玫瑰", note: "温柔层次", gradient: { backgroundGradientStart: "#ec4899", backgroundGradientEnd: "#7c3aed", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 210 } },
+  { id: "forest", name: "森林", note: "自然耐读", gradient: { backgroundGradientStart: "#047857", backgroundGradientEnd: "#0f766e", backgroundGradientOpacity: 0.24, backgroundGradientAngle: 135 } },
+  { id: "sunset", name: "暖阳", note: "明亮温暖", gradient: { backgroundGradientStart: "#f97316", backgroundGradientEnd: "#ec4899", backgroundGradientOpacity: 0.22, backgroundGradientAngle: 125 } },
 ] as const;
 
 /** 用半透明冷暖色层模拟色温，保留照片细节与对比关系。 */
@@ -251,6 +269,10 @@ export function normalizedBackgroundFilter(value?: Partial<AIAppearance>): Backg
   };
 }
 
+function normalizedFilterCategory(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 16) : "未分类";
+}
+
 function normalizedPromptShortcut(value: Partial<CustomPromptShortcut>): CustomPromptShortcut | null {
   const title = value.title?.trim().slice(0, 24) ?? "";
   const prompt = value.prompt?.trim().slice(0, 600) ?? "";
@@ -280,16 +302,67 @@ export function getCustomBackgroundFilterPresets(): CustomBackgroundFilterPreset
   return saved
     .filter(preset => preset && typeof preset.id === "string" && typeof preset.name === "string" && preset.name.trim() && preset.filter)
     .slice(0, 12)
-    .map(preset => ({ id: preset.id, name: preset.name.trim().slice(0, 20), filter: normalizedBackgroundFilter(preset.filter), createdAt: Number(preset.createdAt) || Date.now(), updatedAt: Number(preset.updatedAt) || Number(preset.createdAt) || Date.now() }));
+    .map(preset => ({ id: preset.id, name: preset.name.trim().slice(0, 20), category: normalizedFilterCategory(preset.category), filter: normalizedBackgroundFilter(preset.filter), createdAt: Number(preset.createdAt) || Date.now(), updatedAt: Number(preset.updatedAt) || Number(preset.createdAt) || Date.now() }));
 }
 
 export function saveCustomBackgroundFilterPresets(presets: CustomBackgroundFilterPreset[]) {
   storage()?.setItem(CUSTOM_BACKGROUND_FILTER_PRESETS_KEY, JSON.stringify(presets.slice(0, 12)));
 }
 
-export function createCustomBackgroundFilterPreset(name: string, appearance: AIAppearance): CustomBackgroundFilterPreset {
+export function createCustomBackgroundFilterPreset(name: string, appearance: AIAppearance, category = "未分类"): CustomBackgroundFilterPreset {
   const now = Date.now();
-  return { id: createProfileId(), name: name.trim().slice(0, 20), filter: normalizedBackgroundFilter(appearance), createdAt: now, updatedAt: now };
+  return { id: createProfileId(), name: name.trim().slice(0, 20), category: normalizedFilterCategory(category), filter: normalizedBackgroundFilter(appearance), createdAt: now, updatedAt: now };
+}
+
+function backgroundPlanAppearance(value?: Partial<AIAppearance>): BackgroundPlanExport["background"] {
+  const appearance = normalizedAppearance(value);
+  return {
+    backgroundBlur: appearance.backgroundBlur,
+    backgroundBrightness: appearance.backgroundBrightness,
+    backgroundContrast: appearance.backgroundContrast,
+    backgroundSaturation: appearance.backgroundSaturation,
+    backgroundTemperature: appearance.backgroundTemperature,
+    backgroundVignette: appearance.backgroundVignette,
+    backgroundGrain: appearance.backgroundGrain,
+    backgroundGradientStart: appearance.backgroundGradientStart,
+    backgroundGradientEnd: appearance.backgroundGradientEnd,
+    backgroundGradientOpacity: appearance.backgroundGradientOpacity,
+    backgroundGradientAngle: appearance.backgroundGradientAngle,
+    backgroundOpacity: appearance.backgroundOpacity,
+    backgroundScale: appearance.backgroundScale,
+    backgroundPositionX: appearance.backgroundPositionX,
+    backgroundPositionY: appearance.backgroundPositionY,
+  };
+}
+
+/** 导出不含背景图片、API Key、聊天记录或个人资料的纯背景方案 JSON。 */
+export function createBackgroundPlanExport(appearance: AIAppearance, customFilterPresets: CustomBackgroundFilterPreset[]): BackgroundPlanExport {
+  return {
+    format: "qingliao-background-plan",
+    version: 1,
+    exportedAt: Date.now(),
+    background: backgroundPlanAppearance(appearance),
+    customFilterPresets: customFilterPresets.slice(0, 12).map(preset => ({ ...preset, category: normalizedFilterCategory(preset.category), filter: normalizedBackgroundFilter(preset.filter) })),
+  };
+}
+
+/** 读取并校验导入方案；只接受背景显示参数和滤镜组合，拒绝任何其他敏感数据。 */
+export function parseBackgroundPlanImport(value: unknown): BackgroundPlanExport {
+  if (!value || typeof value !== "object") throw new Error("方案文件格式不正确。");
+  const raw = value as Partial<BackgroundPlanExport>;
+  if (raw.format !== "qingliao-background-plan" || raw.version !== 1) throw new Error("这不是轻聊 AI 的背景方案文件，或版本不受支持。");
+  const presets = Array.isArray(raw.customFilterPresets) ? raw.customFilterPresets : [];
+  const now = Date.now();
+  return {
+    format: "qingliao-background-plan",
+    version: 1,
+    exportedAt: Number(raw.exportedAt) || now,
+    background: backgroundPlanAppearance(raw.background),
+    customFilterPresets: presets
+      .filter(preset => preset && typeof preset.id === "string" && typeof preset.name === "string" && preset.name.trim() && preset.filter)
+      .slice(0, 12)
+      .map(preset => ({ id: createProfileId(), name: preset.name.trim().slice(0, 20), category: normalizedFilterCategory(preset.category), filter: normalizedBackgroundFilter(preset.filter), createdAt: now, updatedAt: now })),
+  };
 }
 
 export function getAppearancePresets(): AppearancePreset[] {

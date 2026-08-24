@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendLocalMessages, conversationsForAI, createConversation } from "./localChat";
 import {
   BACKGROUND_FILTER_PRESETS,
+  BACKGROUND_GRADIENT_PRESETS,
   BACKGROUND_LAYOUT_PRESETS,
   BUILTIN_AI_THEMES,
   DEFAULT_PROMPT_SHORTCUTS,
   createCustomBackgroundFilterPreset,
+  createBackgroundPlanExport,
   createCustomPromptShortcut,
   createAppearancePreset,
   createAIProfile,
@@ -15,6 +17,7 @@ import {
   getAppearancePresets,
   getUserProfile,
   getCustomPromptShortcuts,
+  parseBackgroundPlanImport,
   saveAppearancePresets,
   saveAIProfiles,
   saveCustomBackgroundFilterPresets,
@@ -123,6 +126,11 @@ describe("local multi-AI profiles", () => {
     expect(BACKGROUND_FILTER_PRESETS.every(preset => preset.filter.backgroundBrightness >= 60 && preset.filter.backgroundBrightness <= 140 && preset.filter.backgroundContrast >= 60 && preset.filter.backgroundContrast <= 160 && preset.filter.backgroundSaturation >= 0 && preset.filter.backgroundSaturation <= 200 && preset.filter.backgroundTemperature >= -100 && preset.filter.backgroundTemperature <= 100 && preset.filter.backgroundVignette >= 0 && preset.filter.backgroundVignette <= 100 && preset.filter.backgroundGrain >= 0 && preset.filter.backgroundGrain <= 100)).toBe(true);
   });
 
+  it("provides practical one-click background gradient presets", () => {
+    expect(BACKGROUND_GRADIENT_PRESETS.map(preset => preset.name)).toEqual(["无叠色", "暮光", "玫瑰", "森林", "暖阳"]);
+    expect(BACKGROUND_GRADIENT_PRESETS.every(preset => /^#[0-9a-f]{6}$/i.test(preset.gradient.backgroundGradientStart) && /^#[0-9a-f]{6}$/i.test(preset.gradient.backgroundGradientEnd) && preset.gradient.backgroundGradientOpacity >= 0 && preset.gradient.backgroundGradientOpacity <= 0.7 && preset.gradient.backgroundGradientAngle >= 0 && preset.gradient.backgroundGradientAngle <= 360)).toBe(true);
+  });
+
   it("provides complete built-in themes ready for one-click application", () => {
     expect(BUILTIN_AI_THEMES.map(theme => theme.name)).toEqual(["清透蓝", "暮光紫", "莓果粉", "森林纸", "暖阳黄"]);
     expect(BUILTIN_AI_THEMES.every(theme => theme.appearance.accent && theme.appearance.bubbleRadius && theme.appearance.chatTexture)).toBe(true);
@@ -145,19 +153,33 @@ describe("local multi-AI profiles", () => {
 
   it("saves reusable custom background filter presets separately from AI profiles", () => {
     const appearance = { accent: "violet" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "grid" as const, backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18, backgroundGradientStart: "#987654", backgroundGradientEnd: "#abcdef", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 225 };
-    const preset = createCustomBackgroundFilterPreset("夜读氛围", appearance);
+    const preset = createCustomBackgroundFilterPreset("夜读氛围", appearance, "阅读");
     saveCustomBackgroundFilterPresets([preset]);
 
-    expect(getCustomBackgroundFilterPresets()).toMatchObject([{ id: preset.id, name: "夜读氛围", filter: { backgroundBlur: 16, backgroundBrightness: 140, backgroundContrast: 60, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18, backgroundGradientStart: "#987654", backgroundGradientEnd: "#abcdef", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 225 } }]);
+    expect(getCustomBackgroundFilterPresets()).toMatchObject([{ id: preset.id, name: "夜读氛围", category: "阅读", filter: { backgroundBlur: 16, backgroundBrightness: 140, backgroundContrast: 60, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18, backgroundGradientStart: "#987654", backgroundGradientEnd: "#abcdef", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 225 } }]);
     expect(getAIProfiles()[0].appearance?.backgroundBrightness).toBe(100);
   });
 
   it("preserves custom background filter preset order and renamed labels", () => {
     const first = createCustomBackgroundFilterPreset("第一组", { accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain" });
     const second = createCustomBackgroundFilterPreset("第二组", { accent: "rose", fontScale: "large", bubbleRadius: "pill", chatTexture: "dots" });
-    saveCustomBackgroundFilterPresets([{ ...second, name: "夜间阅读", updatedAt: second.updatedAt + 1 }, first]);
+    saveCustomBackgroundFilterPresets([{ ...second, name: "夜间阅读", category: "夜读", updatedAt: second.updatedAt + 1 }, first]);
 
     expect(getCustomBackgroundFilterPresets().map(preset => preset.name)).toEqual(["夜间阅读", "第一组"]);
+    expect(getCustomBackgroundFilterPresets()[0].category).toBe("夜读");
+  });
+
+  it("exports and imports a safe background plan without image or private profile data", () => {
+    const appearance = { accent: "violet" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "grid" as const, backgroundImage: "data:image/jpeg;base64,secret-image", backgroundBlur: 4, backgroundBrightness: 95, backgroundContrast: 120, backgroundSaturation: 80, backgroundTemperature: -20, backgroundVignette: 35, backgroundGrain: 18, backgroundGradientStart: "#312e81", backgroundGradientEnd: "#8b5cf6", backgroundGradientOpacity: 0.28, backgroundGradientAngle: 145, backgroundOpacity: 0.62, backgroundScale: 160, backgroundPositionX: 35, backgroundPositionY: 20 };
+    const preset = createCustomBackgroundFilterPreset("夜读", appearance, "专注");
+    const exported = createBackgroundPlanExport(appearance, [preset]);
+    const imported = parseBackgroundPlanImport(exported);
+
+    expect(JSON.stringify(exported)).not.toContain("secret-image");
+    expect(imported.background).toMatchObject({ backgroundBlur: 4, backgroundGradientStart: "#312e81", backgroundScale: 160, backgroundPositionY: 20 });
+    expect(imported.customFilterPresets[0]).toMatchObject({ name: "夜读", category: "专注" });
+    expect(imported.customFilterPresets[0].id).not.toBe(preset.id);
+    expect(() => parseBackgroundPlanImport({ format: "other-plan", version: 1 })).toThrow("不是轻聊 AI 的背景方案文件");
   });
 
   it("saves named appearance presets separately from AI profiles", () => {
