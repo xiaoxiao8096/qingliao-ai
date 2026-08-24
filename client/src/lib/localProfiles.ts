@@ -18,6 +18,11 @@ export type AIAppearance = {
   /** 背景暗角与颗粒强度（百分比）。 */
   backgroundVignette?: number;
   backgroundGrain?: number;
+  /** 背景渐变叠色层，透明度为 0 时不显示。 */
+  backgroundGradientStart?: string;
+  backgroundGradientEnd?: string;
+  backgroundGradientOpacity?: number;
+  backgroundGradientAngle?: number;
   /** 背景上的浅色保护层透明度（0-1），数值越大文字越清晰。 */
   backgroundOpacity?: number;
   /** 背景图片的缩放比例（百分比）。 */
@@ -42,6 +47,10 @@ export type BackgroundFilter = {
   backgroundTemperature: number;
   backgroundVignette: number;
   backgroundGrain: number;
+  backgroundGradientStart: string;
+  backgroundGradientEnd: string;
+  backgroundGradientOpacity: number;
+  backgroundGradientAngle: number;
 };
 
 export type CustomBackgroundFilterPreset = {
@@ -49,6 +58,7 @@ export type CustomBackgroundFilterPreset = {
   name: string;
   filter: BackgroundFilter;
   createdAt: number;
+  updatedAt: number;
 };
 
 export type CustomPromptShortcut = {
@@ -60,7 +70,7 @@ export type CustomPromptShortcut = {
 };
 
 export const DEFAULT_AI_APPEARANCE: AIAppearance = {
-  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundBrightness: 100, backgroundContrast: 100, backgroundSaturation: 100, backgroundTemperature: 0, backgroundVignette: 0, backgroundGrain: 0, backgroundOpacity: 0.72, backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50,
+  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundBrightness: 100, backgroundContrast: 100, backgroundSaturation: 100, backgroundTemperature: 0, backgroundVignette: 0, backgroundGrain: 0, backgroundGradientStart: "#4f8fd8", backgroundGradientEnd: "#8b5cf6", backgroundGradientOpacity: 0, backgroundGradientAngle: 135, backgroundOpacity: 0.72, backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50,
 };
 
 /** 内置背景排版方案；应用后仍可通过裁切框和滑块微调。 */
@@ -74,10 +84,10 @@ export const BACKGROUND_LAYOUT_PRESETS = [
 
 /** 内置背景滤镜方案；应用后仍可通过滑块进行细微调整。 */
 export const BACKGROUND_FILTER_PRESETS = [
-  { id: "natural", name: "原片", note: "自然真实", filter: { backgroundBlur: 0, backgroundBrightness: 100, backgroundContrast: 100, backgroundSaturation: 100, backgroundTemperature: 0, backgroundVignette: 0, backgroundGrain: 0 } },
-  { id: "vintage", name: "复古", note: "暖调柔和", filter: { backgroundBlur: 1, backgroundBrightness: 105, backgroundContrast: 85, backgroundSaturation: 75, backgroundTemperature: 45, backgroundVignette: 20, backgroundGrain: 22 } },
-  { id: "mono", name: "黑白", note: "高对比", filter: { backgroundBlur: 0, backgroundBrightness: 105, backgroundContrast: 125, backgroundSaturation: 0, backgroundTemperature: 0, backgroundVignette: 18, backgroundGrain: 8 } },
-  { id: "cinematic", name: "电影感", note: "冷调质感", filter: { backgroundBlur: 0, backgroundBrightness: 90, backgroundContrast: 125, backgroundSaturation: 78, backgroundTemperature: -35, backgroundVignette: 35, backgroundGrain: 16 } },
+  { id: "natural", name: "原片", note: "自然真实", filter: { backgroundBlur: 0, backgroundBrightness: 100, backgroundContrast: 100, backgroundSaturation: 100, backgroundTemperature: 0, backgroundVignette: 0, backgroundGrain: 0, backgroundGradientStart: "#4f8fd8", backgroundGradientEnd: "#8b5cf6", backgroundGradientOpacity: 0, backgroundGradientAngle: 135 } },
+  { id: "vintage", name: "复古", note: "暖调柔和", filter: { backgroundBlur: 1, backgroundBrightness: 105, backgroundContrast: 85, backgroundSaturation: 75, backgroundTemperature: 45, backgroundVignette: 20, backgroundGrain: 22, backgroundGradientStart: "#c08457", backgroundGradientEnd: "#5c4033", backgroundGradientOpacity: 0.18, backgroundGradientAngle: 135 } },
+  { id: "mono", name: "黑白", note: "高对比", filter: { backgroundBlur: 0, backgroundBrightness: 105, backgroundContrast: 125, backgroundSaturation: 0, backgroundTemperature: 0, backgroundVignette: 18, backgroundGrain: 8, backgroundGradientStart: "#64748b", backgroundGradientEnd: "#0f172a", backgroundGradientOpacity: 0.1, backgroundGradientAngle: 135 } },
+  { id: "cinematic", name: "电影感", note: "冷调质感", filter: { backgroundBlur: 0, backgroundBrightness: 90, backgroundContrast: 125, backgroundSaturation: 78, backgroundTemperature: -35, backgroundVignette: 35, backgroundGrain: 16, backgroundGradientStart: "#0f4c5c", backgroundGradientEnd: "#1e293b", backgroundGradientOpacity: 0.24, backgroundGradientAngle: 145 } },
 ] as const;
 
 /** 用半透明冷暖色层模拟色温，保留照片细节与对比关系。 */
@@ -91,6 +101,19 @@ export function backgroundTemperatureOverlay(temperature = 0) {
 export function backgroundVignetteOverlay(vignette = 0) {
   const strength = Math.min(0.72, Math.max(0, vignette) / 115);
   return `radial-gradient(ellipse at center, rgb(15 23 42 / 0) 35%, rgb(15 23 42 / ${strength}) 100%)`;
+}
+
+function hexToRgba(color: string, opacity: number) {
+  const valid = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#000000";
+  const red = Number.parseInt(valid.slice(1, 3), 16);
+  const green = Number.parseInt(valid.slice(3, 5), 16);
+  const blue = Number.parseInt(valid.slice(5, 7), 16);
+  return `rgb(${red} ${green} ${blue} / ${Math.min(0.7, Math.max(0, opacity))})`;
+}
+
+/** 将渐变作为独立背景图层，避免改变聊天文字与气泡的对比度。 */
+export function backgroundGradientOverlay(start = "#4f8fd8", end = "#8b5cf6", opacity = 0, angle = 135) {
+  return `linear-gradient(${Math.min(360, Math.max(0, angle))}deg, ${hexToRgba(start, opacity)}, ${hexToRgba(end, opacity)})`;
 }
 
 /** 内联噪点纹理，无需额外网络请求或本地图片文件。 */
@@ -185,6 +208,8 @@ function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
   const temperature = Number(value?.backgroundTemperature);
   const vignette = Number(value?.backgroundVignette);
   const grain = Number(value?.backgroundGrain);
+  const gradientOpacity = Number(value?.backgroundGradientOpacity);
+  const gradientAngle = Number(value?.backgroundGradientAngle);
   const opacity = Number(value?.backgroundOpacity);
   const scale = Number(value?.backgroundScale);
   const positionX = Number(value?.backgroundPositionX);
@@ -198,6 +223,10 @@ function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
     backgroundTemperature: Number.isFinite(temperature) ? Math.min(100, Math.max(-100, temperature)) : 0,
     backgroundVignette: Number.isFinite(vignette) ? Math.min(100, Math.max(0, vignette)) : 0,
     backgroundGrain: Number.isFinite(grain) ? Math.min(100, Math.max(0, grain)) : 0,
+    backgroundGradientStart: typeof value?.backgroundGradientStart === "string" && /^#[0-9a-fA-F]{6}$/.test(value.backgroundGradientStart) ? value.backgroundGradientStart.toLowerCase() : "#4f8fd8",
+    backgroundGradientEnd: typeof value?.backgroundGradientEnd === "string" && /^#[0-9a-fA-F]{6}$/.test(value.backgroundGradientEnd) ? value.backgroundGradientEnd.toLowerCase() : "#8b5cf6",
+    backgroundGradientOpacity: Number.isFinite(gradientOpacity) ? Math.min(0.7, Math.max(0, gradientOpacity)) : 0,
+    backgroundGradientAngle: Number.isFinite(gradientAngle) ? Math.min(360, Math.max(0, gradientAngle)) : 135,
     backgroundOpacity: Number.isFinite(opacity) ? Math.min(0.92, Math.max(0.18, opacity)) : 0.72,
     backgroundScale: Number.isFinite(scale) ? Math.min(200, Math.max(100, scale)) : 100,
     backgroundPositionX: Number.isFinite(positionX) ? Math.min(100, Math.max(0, positionX)) : 50,
@@ -215,6 +244,10 @@ export function normalizedBackgroundFilter(value?: Partial<AIAppearance>): Backg
     backgroundTemperature: appearance.backgroundTemperature ?? 0,
     backgroundVignette: appearance.backgroundVignette ?? 0,
     backgroundGrain: appearance.backgroundGrain ?? 0,
+    backgroundGradientStart: appearance.backgroundGradientStart ?? "#4f8fd8",
+    backgroundGradientEnd: appearance.backgroundGradientEnd ?? "#8b5cf6",
+    backgroundGradientOpacity: appearance.backgroundGradientOpacity ?? 0,
+    backgroundGradientAngle: appearance.backgroundGradientAngle ?? 135,
   };
 }
 
@@ -247,7 +280,7 @@ export function getCustomBackgroundFilterPresets(): CustomBackgroundFilterPreset
   return saved
     .filter(preset => preset && typeof preset.id === "string" && typeof preset.name === "string" && preset.name.trim() && preset.filter)
     .slice(0, 12)
-    .map(preset => ({ id: preset.id, name: preset.name.trim().slice(0, 20), filter: normalizedBackgroundFilter(preset.filter), createdAt: Number(preset.createdAt) || Date.now() }));
+    .map(preset => ({ id: preset.id, name: preset.name.trim().slice(0, 20), filter: normalizedBackgroundFilter(preset.filter), createdAt: Number(preset.createdAt) || Date.now(), updatedAt: Number(preset.updatedAt) || Number(preset.createdAt) || Date.now() }));
 }
 
 export function saveCustomBackgroundFilterPresets(presets: CustomBackgroundFilterPreset[]) {
@@ -255,7 +288,8 @@ export function saveCustomBackgroundFilterPresets(presets: CustomBackgroundFilte
 }
 
 export function createCustomBackgroundFilterPreset(name: string, appearance: AIAppearance): CustomBackgroundFilterPreset {
-  return { id: createProfileId(), name: name.trim().slice(0, 20), filter: normalizedBackgroundFilter(appearance), createdAt: Date.now() };
+  const now = Date.now();
+  return { id: createProfileId(), name: name.trim().slice(0, 20), filter: normalizedBackgroundFilter(appearance), createdAt: now, updatedAt: now };
 }
 
 export function getAppearancePresets(): AppearancePreset[] {

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
 import { getLocalDraft, saveLocalDraft } from "@/lib/localChat";
-import { BACKGROUND_GRAIN_TEXTURE, backgroundTemperatureOverlay, backgroundVignetteOverlay } from "@/lib/localProfiles";
+import { BACKGROUND_GRAIN_TEXTURE, backgroundGradientOverlay, backgroundTemperatureOverlay, backgroundVignetteOverlay } from "@/lib/localProfiles";
 import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff, RefreshCw, ThumbsUp, ThumbsDown, Pencil, Trash2, Check } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Streamdown } from "streamdown";
@@ -66,6 +66,10 @@ export type AIChatBoxProps = {
   backgroundTemperature?: number;
   backgroundVignette?: number;
   backgroundGrain?: number;
+  backgroundGradientStart?: string;
+  backgroundGradientEnd?: string;
+  backgroundGradientOpacity?: number;
+  backgroundGradientAngle?: number;
   /** 背景图片上的浅色保护层透明度。 */
   backgroundOpacity?: number;
   /** 背景图片缩放比例与定位。 */
@@ -134,6 +138,10 @@ export function AIChatBox({
   backgroundTemperature = 0,
   backgroundVignette = 0,
   backgroundGrain = 0,
+  backgroundGradientStart = "#4f8fd8",
+  backgroundGradientEnd = "#8b5cf6",
+  backgroundGradientOpacity = 0,
+  backgroundGradientAngle = 135,
   backgroundOpacity = 0.72,
   backgroundScale = 100,
   backgroundPositionX = 50,
@@ -339,6 +347,7 @@ export function AIChatBox({
       <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden">
         {backgroundImage && <>
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), linear-gradient(${backgroundTemperatureOverlay(backgroundTemperature)}, ${backgroundTemperatureOverlay(backgroundTemperature)}), url("${backgroundImage}")`, backgroundBlendMode: "normal, color, normal", backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px) brightness(${backgroundBrightness}%) contrast(${backgroundContrast}%) saturate(${backgroundSaturation}%)` }} />
+          {backgroundGradientOpacity > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ backgroundImage: backgroundGradientOverlay(backgroundGradientStart, backgroundGradientEnd, backgroundGradientOpacity, backgroundGradientAngle) }} />}
           {backgroundVignette > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ backgroundImage: backgroundVignetteOverlay(backgroundVignette) }} />}
           {backgroundGrain > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0 mix-blend-soft-light" style={{ backgroundImage: BACKGROUND_GRAIN_TEXTURE, opacity: backgroundGrain / 140 }} />}
         </>}

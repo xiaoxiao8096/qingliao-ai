@@ -72,7 +72,7 @@ describe("local multi-AI profiles", () => {
   });
 
   it("normalizes saved background readability controls for each AI", () => {
-    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 999, backgroundTemperature: -999, backgroundVignette: 999, backgroundGrain: -10, backgroundOpacity: 0 } };
+    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 999, backgroundTemperature: -999, backgroundVignette: 999, backgroundGrain: -10, backgroundGradientStart: "invalid", backgroundGradientEnd: "#ABCDEF", backgroundGradientOpacity: 9, backgroundGradientAngle: -10, backgroundOpacity: 0 } };
     saveAIProfiles([first]);
     const restored = getAIProfiles()[0].appearance;
 
@@ -83,6 +83,10 @@ describe("local multi-AI profiles", () => {
     expect(restored?.backgroundTemperature).toBe(-100);
     expect(restored?.backgroundVignette).toBe(100);
     expect(restored?.backgroundGrain).toBe(0);
+    expect(restored?.backgroundGradientStart).toBe("#4f8fd8");
+    expect(restored?.backgroundGradientEnd).toBe("#abcdef");
+    expect(restored?.backgroundGradientOpacity).toBe(0.7);
+    expect(restored?.backgroundGradientAngle).toBe(0);
     expect(restored?.backgroundOpacity).toBe(0.18);
   });
 
@@ -140,12 +144,20 @@ describe("local multi-AI profiles", () => {
   });
 
   it("saves reusable custom background filter presets separately from AI profiles", () => {
-    const appearance = { accent: "violet" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "grid" as const, backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18 };
+    const appearance = { accent: "violet" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "grid" as const, backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18, backgroundGradientStart: "#987654", backgroundGradientEnd: "#abcdef", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 225 };
     const preset = createCustomBackgroundFilterPreset("夜读氛围", appearance);
     saveCustomBackgroundFilterPresets([preset]);
 
-    expect(getCustomBackgroundFilterPresets()).toMatchObject([{ id: preset.id, name: "夜读氛围", filter: { backgroundBlur: 16, backgroundBrightness: 140, backgroundContrast: 60, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18 } }]);
+    expect(getCustomBackgroundFilterPresets()).toMatchObject([{ id: preset.id, name: "夜读氛围", filter: { backgroundBlur: 16, backgroundBrightness: 140, backgroundContrast: 60, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18, backgroundGradientStart: "#987654", backgroundGradientEnd: "#abcdef", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 225 } }]);
     expect(getAIProfiles()[0].appearance?.backgroundBrightness).toBe(100);
+  });
+
+  it("preserves custom background filter preset order and renamed labels", () => {
+    const first = createCustomBackgroundFilterPreset("第一组", { accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain" });
+    const second = createCustomBackgroundFilterPreset("第二组", { accent: "rose", fontScale: "large", bubbleRadius: "pill", chatTexture: "dots" });
+    saveCustomBackgroundFilterPresets([{ ...second, name: "夜间阅读", updatedAt: second.updatedAt + 1 }, first]);
+
+    expect(getCustomBackgroundFilterPresets().map(preset => preset.name)).toEqual(["夜间阅读", "第一组"]);
   });
 
   it("saves named appearance presets separately from AI profiles", () => {
