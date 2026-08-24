@@ -68,11 +68,13 @@ describe("local multi-AI profiles", () => {
   });
 
   it("normalizes saved background readability controls for each AI", () => {
-    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundOpacity: 0 } };
+    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundOpacity: 0 } };
     saveAIProfiles([first]);
     const restored = getAIProfiles()[0].appearance;
 
     expect(restored?.backgroundBlur).toBe(16);
+    expect(restored?.backgroundBrightness).toBe(140);
+    expect(restored?.backgroundContrast).toBe(60);
     expect(restored?.backgroundOpacity).toBe(0.18);
   });
 

@@ -58,6 +58,9 @@ export type AIChatBoxProps = {
   backgroundImage?: string;
   /** 背景图片模糊程度，单位为像素。 */
   backgroundBlur?: number;
+  /** 背景图片的亮度与对比度。 */
+  backgroundBrightness?: number;
+  backgroundContrast?: number;
   /** 背景图片上的浅色保护层透明度。 */
   backgroundOpacity?: number;
   /** 背景图片缩放比例与定位。 */
@@ -120,6 +123,8 @@ export function AIChatBox({
   userAvatar,
   backgroundImage,
   backgroundBlur = 0,
+  backgroundBrightness = 100,
+  backgroundContrast = 100,
   backgroundOpacity = 0.72,
   backgroundScale = 100,
   backgroundPositionX = 50,
@@ -323,7 +328,7 @@ export function AIChatBox({
     >
       {/* Messages Area */}
       <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden">
-        {backgroundImage && <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), url("${backgroundImage}")`, backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px)` }} />}
+        {backgroundImage && <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), url("${backgroundImage}")`, backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px) brightness(${backgroundBrightness}%) contrast(${backgroundContrast}%)` }} />}
         <div className="relative z-[1] h-full">
           {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">

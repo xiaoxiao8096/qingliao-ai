@@ -9,6 +9,9 @@ export type AIAppearance = {
   backgroundImage?: string;
   /** 背景图片的模糊程度（px），用于提升文字可读性。 */
   backgroundBlur?: number;
+  /** 背景图片亮度和对比度（百分比）。 */
+  backgroundBrightness?: number;
+  backgroundContrast?: number;
   /** 背景上的浅色保护层透明度（0-1），数值越大文字越清晰。 */
   backgroundOpacity?: number;
   /** 背景图片的缩放比例（百分比）。 */
@@ -34,7 +37,7 @@ export type CustomPromptShortcut = {
 };
 
 export const DEFAULT_AI_APPEARANCE: AIAppearance = {
-  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundOpacity: 0.72, backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50,
+  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundBrightness: 100, backgroundContrast: 100, backgroundOpacity: 0.72, backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50,
 };
 
 /** 内置背景排版方案；应用后仍可通过裁切框和滑块微调。 */
@@ -128,6 +131,8 @@ export function createProfileId() {
 function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
   const appearance = { ...DEFAULT_AI_APPEARANCE, ...value };
   const blur = Number(value?.backgroundBlur);
+  const brightness = Number(value?.backgroundBrightness);
+  const contrast = Number(value?.backgroundContrast);
   const opacity = Number(value?.backgroundOpacity);
   const scale = Number(value?.backgroundScale);
   const positionX = Number(value?.backgroundPositionX);
@@ -135,6 +140,8 @@ function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
   return {
     ...appearance,
     backgroundBlur: Number.isFinite(blur) ? Math.min(16, Math.max(0, blur)) : 0,
+    backgroundBrightness: Number.isFinite(brightness) ? Math.min(140, Math.max(60, brightness)) : 100,
+    backgroundContrast: Number.isFinite(contrast) ? Math.min(160, Math.max(60, contrast)) : 100,
     backgroundOpacity: Number.isFinite(opacity) ? Math.min(0.92, Math.max(0.18, opacity)) : 0.72,
     backgroundScale: Number.isFinite(scale) ? Math.min(200, Math.max(100, scale)) : 100,
     backgroundPositionX: Number.isFinite(positionX) ? Math.min(100, Math.max(0, positionX)) : 50,
