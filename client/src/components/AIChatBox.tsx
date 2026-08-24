@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
 import { getLocalDraft, saveLocalDraft } from "@/lib/localChat";
-import { backgroundTemperatureOverlay } from "@/lib/localProfiles";
+import { BACKGROUND_GRAIN_TEXTURE, backgroundTemperatureOverlay, backgroundVignetteOverlay } from "@/lib/localProfiles";
 import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff, RefreshCw, ThumbsUp, ThumbsDown, Pencil, Trash2, Check } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Streamdown } from "streamdown";
@@ -64,6 +64,8 @@ export type AIChatBoxProps = {
   backgroundContrast?: number;
   backgroundSaturation?: number;
   backgroundTemperature?: number;
+  backgroundVignette?: number;
+  backgroundGrain?: number;
   /** 背景图片上的浅色保护层透明度。 */
   backgroundOpacity?: number;
   /** 背景图片缩放比例与定位。 */
@@ -130,6 +132,8 @@ export function AIChatBox({
   backgroundContrast = 100,
   backgroundSaturation = 100,
   backgroundTemperature = 0,
+  backgroundVignette = 0,
+  backgroundGrain = 0,
   backgroundOpacity = 0.72,
   backgroundScale = 100,
   backgroundPositionX = 50,
@@ -333,7 +337,11 @@ export function AIChatBox({
     >
       {/* Messages Area */}
       <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden">
-        {backgroundImage && <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), linear-gradient(${backgroundTemperatureOverlay(backgroundTemperature)}, ${backgroundTemperatureOverlay(backgroundTemperature)}), url("${backgroundImage}")`, backgroundBlendMode: "normal, color, normal", backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px) brightness(${backgroundBrightness}%) contrast(${backgroundContrast}%) saturate(${backgroundSaturation}%)` }} />}
+        {backgroundImage && <>
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), linear-gradient(${backgroundTemperatureOverlay(backgroundTemperature)}, ${backgroundTemperatureOverlay(backgroundTemperature)}), url("${backgroundImage}")`, backgroundBlendMode: "normal, color, normal", backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px) brightness(${backgroundBrightness}%) contrast(${backgroundContrast}%) saturate(${backgroundSaturation}%)` }} />
+          {backgroundVignette > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ backgroundImage: backgroundVignetteOverlay(backgroundVignette) }} />}
+          {backgroundGrain > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0 mix-blend-soft-light" style={{ backgroundImage: BACKGROUND_GRAIN_TEXTURE, opacity: backgroundGrain / 140 }} />}
+        </>}
         <div className="relative z-[1] h-full">
           {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">

@@ -69,7 +69,7 @@ describe("local multi-AI profiles", () => {
   });
 
   it("normalizes saved background readability controls for each AI", () => {
-    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 999, backgroundTemperature: -999, backgroundOpacity: 0 } };
+    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 999, backgroundTemperature: -999, backgroundVignette: 999, backgroundGrain: -10, backgroundOpacity: 0 } };
     saveAIProfiles([first]);
     const restored = getAIProfiles()[0].appearance;
 
@@ -78,6 +78,8 @@ describe("local multi-AI profiles", () => {
     expect(restored?.backgroundContrast).toBe(60);
     expect(restored?.backgroundSaturation).toBe(200);
     expect(restored?.backgroundTemperature).toBe(-100);
+    expect(restored?.backgroundVignette).toBe(100);
+    expect(restored?.backgroundGrain).toBe(0);
     expect(restored?.backgroundOpacity).toBe(0.18);
   });
 
@@ -111,12 +113,14 @@ describe("local multi-AI profiles", () => {
   it("provides safe one-click background filter presets", () => {
     expect(BACKGROUND_FILTER_PRESETS.map(preset => preset.name)).toEqual(["原片", "复古", "黑白", "电影感"]);
     expect(BACKGROUND_FILTER_PRESETS.find(preset => preset.id === "mono")?.filter.backgroundSaturation).toBe(0);
-    expect(BACKGROUND_FILTER_PRESETS.every(preset => preset.filter.backgroundBrightness >= 60 && preset.filter.backgroundBrightness <= 140 && preset.filter.backgroundContrast >= 60 && preset.filter.backgroundContrast <= 160 && preset.filter.backgroundSaturation >= 0 && preset.filter.backgroundSaturation <= 200 && preset.filter.backgroundTemperature >= -100 && preset.filter.backgroundTemperature <= 100)).toBe(true);
+    expect(BACKGROUND_FILTER_PRESETS.every(preset => preset.filter.backgroundBrightness >= 60 && preset.filter.backgroundBrightness <= 140 && preset.filter.backgroundContrast >= 60 && preset.filter.backgroundContrast <= 160 && preset.filter.backgroundSaturation >= 0 && preset.filter.backgroundSaturation <= 200 && preset.filter.backgroundTemperature >= -100 && preset.filter.backgroundTemperature <= 100 && preset.filter.backgroundVignette >= 0 && preset.filter.backgroundVignette <= 100 && preset.filter.backgroundGrain >= 0 && preset.filter.backgroundGrain <= 100)).toBe(true);
   });
 
   it("provides complete built-in themes ready for one-click application", () => {
     expect(BUILTIN_AI_THEMES.map(theme => theme.name)).toEqual(["清透蓝", "暮光紫", "莓果粉", "森林纸", "暖阳黄"]);
     expect(BUILTIN_AI_THEMES.every(theme => theme.appearance.accent && theme.appearance.bubbleRadius && theme.appearance.chatTexture)).toBe(true);
+    expect(BUILTIN_AI_THEMES.every(theme => typeof theme.appearance.backgroundVignette === "number" && typeof theme.appearance.backgroundGrain === "number" && typeof theme.appearance.backgroundTemperature === "number")).toBe(true);
+    expect(BUILTIN_AI_THEMES.find(theme => theme.id === "violet-night")?.appearance).toMatchObject({ backgroundTemperature: -20, backgroundVignette: 30, backgroundGrain: 15 });
   });
 
   it("provides editable prompt shortcuts for common chat starts", () => {
