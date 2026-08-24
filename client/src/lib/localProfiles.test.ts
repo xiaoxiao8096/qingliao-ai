@@ -8,6 +8,7 @@ import {
   DEFAULT_PROMPT_SHORTCUTS,
   createCustomBackgroundFilterPreset,
   createBackgroundPlanExport,
+  createBackgroundPlanSharePayload,
   createCustomPromptShortcut,
   createAppearancePreset,
   createAIProfile,
@@ -18,6 +19,7 @@ import {
   getUserProfile,
   getCustomPromptShortcuts,
   parseBackgroundPlanImport,
+  parseBackgroundPlanSharePayload,
   saveAppearancePresets,
   saveAIProfiles,
   saveCustomBackgroundFilterPresets,
@@ -153,10 +155,10 @@ describe("local multi-AI profiles", () => {
 
   it("saves reusable custom background filter presets separately from AI profiles", () => {
     const appearance = { accent: "violet" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "grid" as const, backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18, backgroundGradientStart: "#987654", backgroundGradientEnd: "#abcdef", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 225 };
-    const preset = createCustomBackgroundFilterPreset("夜读氛围", appearance, "阅读");
+    const preset = createCustomBackgroundFilterPreset("夜读氛围", appearance, "阅读", "#7c3aed");
     saveCustomBackgroundFilterPresets([preset]);
 
-    expect(getCustomBackgroundFilterPresets()).toMatchObject([{ id: preset.id, name: "夜读氛围", category: "阅读", filter: { backgroundBlur: 16, backgroundBrightness: 140, backgroundContrast: 60, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18, backgroundGradientStart: "#987654", backgroundGradientEnd: "#abcdef", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 225 } }]);
+    expect(getCustomBackgroundFilterPresets()).toMatchObject([{ id: preset.id, name: "夜读氛围", category: "阅读", categoryColor: "#7c3aed", filter: { backgroundBlur: 16, backgroundBrightness: 140, backgroundContrast: 60, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18, backgroundGradientStart: "#987654", backgroundGradientEnd: "#abcdef", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 225 } }]);
     expect(getAIProfiles()[0].appearance?.backgroundBrightness).toBe(100);
   });
 
@@ -180,6 +182,18 @@ describe("local multi-AI profiles", () => {
     expect(imported.customFilterPresets[0]).toMatchObject({ name: "夜读", category: "专注" });
     expect(imported.customFilterPresets[0].id).not.toBe(preset.id);
     expect(() => parseBackgroundPlanImport({ format: "other-plan", version: 1 })).toThrow("不是轻聊 AI 的背景方案文件");
+  });
+
+  it("creates a compact safe QR share payload for the current background only", () => {
+    const appearance = { accent: "rose" as const, fontScale: "large" as const, bubbleRadius: "pill" as const, chatTexture: "paper" as const, backgroundImage: "data:image/png;base64,private-image", backgroundBlur: 5, backgroundBrightness: 90, backgroundContrast: 120, backgroundSaturation: 85, backgroundTemperature: 20, backgroundVignette: 30, backgroundGrain: 15, backgroundGradientStart: "#ec4899", backgroundGradientEnd: "#312e81", backgroundGradientOpacity: 0.25, backgroundGradientAngle: 210, backgroundOpacity: 0.6, backgroundScale: 155, backgroundPositionX: 40, backgroundPositionY: 25 };
+    const payload = createBackgroundPlanSharePayload(appearance);
+    const restored = parseBackgroundPlanSharePayload(payload);
+
+    expect(payload).not.toContain("private-image");
+    expect(payload).not.toContain("accent");
+    expect(restored.background).toMatchObject({ backgroundBlur: 5, backgroundGradientEnd: "#312e81", backgroundScale: 155, backgroundPositionY: 25 });
+    expect(restored.customFilterPresets).toEqual([]);
+    expect(() => parseBackgroundPlanSharePayload('{"v":1,"b":[]}')).toThrow("版本不受支持");
   });
 
   it("saves named appearance presets separately from AI profiles", () => {

@@ -57,6 +57,7 @@ export type CustomBackgroundFilterPreset = {
   id: string;
   name: string;
   category: string;
+  categoryColor: string;
   filter: BackgroundFilter;
   createdAt: number;
   updatedAt: number;
@@ -273,6 +274,10 @@ function normalizedFilterCategory(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, 16) : "未分类";
 }
 
+function normalizedFilterCategoryColor(value: unknown) {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : "#64748b";
+}
+
 function normalizedPromptShortcut(value: Partial<CustomPromptShortcut>): CustomPromptShortcut | null {
   const title = value.title?.trim().slice(0, 24) ?? "";
   const prompt = value.prompt?.trim().slice(0, 600) ?? "";
@@ -302,16 +307,16 @@ export function getCustomBackgroundFilterPresets(): CustomBackgroundFilterPreset
   return saved
     .filter(preset => preset && typeof preset.id === "string" && typeof preset.name === "string" && preset.name.trim() && preset.filter)
     .slice(0, 12)
-    .map(preset => ({ id: preset.id, name: preset.name.trim().slice(0, 20), category: normalizedFilterCategory(preset.category), filter: normalizedBackgroundFilter(preset.filter), createdAt: Number(preset.createdAt) || Date.now(), updatedAt: Number(preset.updatedAt) || Number(preset.createdAt) || Date.now() }));
+    .map(preset => ({ id: preset.id, name: preset.name.trim().slice(0, 20), category: normalizedFilterCategory(preset.category), categoryColor: normalizedFilterCategoryColor(preset.categoryColor), filter: normalizedBackgroundFilter(preset.filter), createdAt: Number(preset.createdAt) || Date.now(), updatedAt: Number(preset.updatedAt) || Number(preset.createdAt) || Date.now() }));
 }
 
 export function saveCustomBackgroundFilterPresets(presets: CustomBackgroundFilterPreset[]) {
   storage()?.setItem(CUSTOM_BACKGROUND_FILTER_PRESETS_KEY, JSON.stringify(presets.slice(0, 12)));
 }
 
-export function createCustomBackgroundFilterPreset(name: string, appearance: AIAppearance, category = "未分类"): CustomBackgroundFilterPreset {
+export function createCustomBackgroundFilterPreset(name: string, appearance: AIAppearance, category = "未分类", categoryColor = "#64748b"): CustomBackgroundFilterPreset {
   const now = Date.now();
-  return { id: createProfileId(), name: name.trim().slice(0, 20), category: normalizedFilterCategory(category), filter: normalizedBackgroundFilter(appearance), createdAt: now, updatedAt: now };
+  return { id: createProfileId(), name: name.trim().slice(0, 20), category: normalizedFilterCategory(category), categoryColor: normalizedFilterCategoryColor(categoryColor), filter: normalizedBackgroundFilter(appearance), createdAt: now, updatedAt: now };
 }
 
 function backgroundPlanAppearance(value?: Partial<AIAppearance>): BackgroundPlanExport["background"] {
@@ -342,7 +347,7 @@ export function createBackgroundPlanExport(appearance: AIAppearance, customFilte
     version: 1,
     exportedAt: Date.now(),
     background: backgroundPlanAppearance(appearance),
-    customFilterPresets: customFilterPresets.slice(0, 12).map(preset => ({ ...preset, category: normalizedFilterCategory(preset.category), filter: normalizedBackgroundFilter(preset.filter) })),
+    customFilterPresets: customFilterPresets.slice(0, 12).map(preset => ({ ...preset, category: normalizedFilterCategory(preset.category), categoryColor: normalizedFilterCategoryColor(preset.categoryColor), filter: normalizedBackgroundFilter(preset.filter) })),
   };
 }
 
@@ -361,7 +366,35 @@ export function parseBackgroundPlanImport(value: unknown): BackgroundPlanExport 
     customFilterPresets: presets
       .filter(preset => preset && typeof preset.id === "string" && typeof preset.name === "string" && preset.name.trim() && preset.filter)
       .slice(0, 12)
-      .map(preset => ({ id: createProfileId(), name: preset.name.trim().slice(0, 20), category: normalizedFilterCategory(preset.category), filter: normalizedBackgroundFilter(preset.filter), createdAt: now, updatedAt: now })),
+      .map(preset => ({ id: createProfileId(), name: preset.name.trim().slice(0, 20), category: normalizedFilterCategory(preset.category), categoryColor: normalizedFilterCategoryColor(preset.categoryColor), filter: normalizedBackgroundFilter(preset.filter), createdAt: now, updatedAt: now })),
+  };
+}
+
+/** 用于二维码的紧凑背景载荷，仅包含当前背景显示参数，不携带图片、滤镜库或私密信息。 */
+export function createBackgroundPlanSharePayload(appearance: AIAppearance) {
+  const background = backgroundPlanAppearance(appearance);
+  return JSON.stringify({ v: 1, b: [background.backgroundBlur, background.backgroundBrightness, background.backgroundContrast, background.backgroundSaturation, background.backgroundTemperature, background.backgroundVignette, background.backgroundGrain, background.backgroundGradientStart, background.backgroundGradientEnd, background.backgroundGradientOpacity, background.backgroundGradientAngle, background.backgroundOpacity, background.backgroundScale, background.backgroundPositionX, background.backgroundPositionY] });
+}
+
+/** 将二维码中的紧凑背景载荷转换为普通导入方案，以复用同一份差异预览和确认流程。 */
+export function parseBackgroundPlanSharePayload(payload: string): BackgroundPlanExport {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(payload);
+  } catch {
+    throw new Error("二维码背景方案无法读取。");
+  }
+  if (!raw || typeof raw !== "object") throw new Error("二维码背景方案格式不正确。");
+  const share = raw as { v?: number; b?: unknown[] };
+  if (share.v !== 1 || !Array.isArray(share.b) || share.b.length !== 15) throw new Error("二维码背景方案版本不受支持。");
+  const [backgroundBlur, backgroundBrightness, backgroundContrast, backgroundSaturation, backgroundTemperature, backgroundVignette, backgroundGrain, backgroundGradientStart, backgroundGradientEnd, backgroundGradientOpacity, backgroundGradientAngle, backgroundOpacity, backgroundScale, backgroundPositionX, backgroundPositionY] = share.b;
+  const numberOrUndefined = (value: unknown) => typeof value === "number" ? value : undefined;
+  return {
+    format: "qingliao-background-plan",
+    version: 1,
+    exportedAt: Date.now(),
+    background: backgroundPlanAppearance({ backgroundBlur: numberOrUndefined(backgroundBlur), backgroundBrightness: numberOrUndefined(backgroundBrightness), backgroundContrast: numberOrUndefined(backgroundContrast), backgroundSaturation: numberOrUndefined(backgroundSaturation), backgroundTemperature: numberOrUndefined(backgroundTemperature), backgroundVignette: numberOrUndefined(backgroundVignette), backgroundGrain: numberOrUndefined(backgroundGrain), backgroundGradientStart: typeof backgroundGradientStart === "string" ? backgroundGradientStart : undefined, backgroundGradientEnd: typeof backgroundGradientEnd === "string" ? backgroundGradientEnd : undefined, backgroundGradientOpacity: numberOrUndefined(backgroundGradientOpacity), backgroundGradientAngle: numberOrUndefined(backgroundGradientAngle), backgroundOpacity: numberOrUndefined(backgroundOpacity), backgroundScale: numberOrUndefined(backgroundScale), backgroundPositionX: numberOrUndefined(backgroundPositionX), backgroundPositionY: numberOrUndefined(backgroundPositionY) }),
+    customFilterPresets: [],
   };
 }
 

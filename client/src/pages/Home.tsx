@@ -25,7 +25,7 @@ import {
 } from "@/lib/localChat";
 import { useThemePreference } from "@/contexts/ThemeContext";
 import { toPersistedAttachment, type Attachment } from "@/lib/attachments";
-import { BACKGROUND_GRAIN_TEXTURE, BACKGROUND_GRADIENT_PRESETS, backgroundGradientOverlay, backgroundImageFileToDataUrl, BACKGROUND_FILTER_PRESETS, BACKGROUND_LAYOUT_PRESETS, backgroundTemperatureOverlay, backgroundVignetteOverlay, BUILTIN_AI_THEMES, createBackgroundPlanExport, createCustomBackgroundFilterPreset, createCustomPromptShortcut, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getCustomBackgroundFilterPresets, getCustomPromptShortcuts, getUserProfile, parseBackgroundPlanImport, saveAIProfiles, saveCustomBackgroundFilterPresets, saveCustomPromptShortcuts, setActiveAIId, type AIAppearance, type BackgroundFilter, type CustomBackgroundFilterPreset, type CustomPromptShortcut, type LocalAIProfile } from "@/lib/localProfiles";
+import { BACKGROUND_GRAIN_TEXTURE, BACKGROUND_GRADIENT_PRESETS, backgroundGradientOverlay, backgroundImageFileToDataUrl, BACKGROUND_FILTER_PRESETS, BACKGROUND_LAYOUT_PRESETS, backgroundTemperatureOverlay, backgroundVignetteOverlay, BUILTIN_AI_THEMES, createBackgroundPlanExport, createBackgroundPlanSharePayload, createCustomBackgroundFilterPreset, createCustomPromptShortcut, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getCustomBackgroundFilterPresets, getCustomPromptShortcuts, getUserProfile, parseBackgroundPlanImport, parseBackgroundPlanSharePayload, saveAIProfiles, saveCustomBackgroundFilterPresets, saveCustomPromptShortcuts, setActiveAIId, type AIAppearance, type BackgroundFilter, type BackgroundPlanExport, type CustomBackgroundFilterPreset, type CustomPromptShortcut, type LocalAIProfile } from "@/lib/localProfiles";
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -50,9 +50,12 @@ import {
   Palette,
   Type,
   Upload,
+  QrCode,
+  Share2,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import QRCode from "qrcode";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -63,6 +66,17 @@ type ContentPart =
   | { type: "image_url"; image_url: { url: string } }
   | { type: "video_url"; video_url: { url: string } }
   | { type: "file"; file: { filename: string; file_data: string } };
+
+type PendingBackgroundPlan = { plan: BackgroundPlanExport; additions: CustomBackgroundFilterPreset[]; differences: string[]; source: "文件" | "二维码" };
+
+function base64UrlEncode(value: string) {
+  return btoa(unescape(encodeURIComponent(value))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function base64UrlDecode(value: string) {
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - value.length % 4) % 4);
+  return decodeURIComponent(escape(atob(padded)));
+}
 
 function buildContent(message: { content?: string; attachments?: Attachment[] }): string | ContentPart[] {
   const parts: ContentPart[] = [];
@@ -134,7 +148,7 @@ function SortableBackgroundFilterPreset({ preset, onApply, onRename, onRemove }:
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: preset.id });
   return <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={`flex items-center gap-1 rounded-md bg-slate-50 p-1 ${isDragging ? "z-10 opacity-70 shadow-lg" : ""}`}>
     <button type="button" className="grid size-6 shrink-0 touch-none place-items-center rounded text-slate-400 hover:bg-white hover:text-sky-700" aria-label={`拖动排序自定义滤镜组合 ${preset.name}`} {...attributes} {...listeners}><GripVertical className="size-3" /></button>
-    <button type="button" onClick={onApply} className="min-w-0 flex-1 truncate rounded px-1 py-1 text-left text-[10px] font-medium text-slate-700 hover:bg-white" aria-label={`应用自定义滤镜组合 ${preset.name}`}><span className="truncate">{preset.name}</span><span className="ml-1 rounded bg-slate-200 px-1 py-0.5 text-[8px] font-medium text-slate-500">{preset.category}</span></button>
+    <button type="button" onClick={onApply} className="min-w-0 flex-1 truncate rounded px-1 py-1 text-left text-[10px] font-medium text-slate-700 hover:bg-white" aria-label={`应用自定义滤镜组合 ${preset.name}`}><span className="truncate">{preset.name}</span><span className="ml-1 rounded px-1 py-0.5 text-[8px] font-medium" style={{ backgroundColor: `${preset.categoryColor}1f`, color: preset.categoryColor }}>{preset.category}</span></button>
     <button type="button" onClick={onRename} className="grid size-6 place-items-center rounded text-slate-400 hover:bg-white hover:text-sky-700" aria-label={`重命名自定义滤镜组合 ${preset.name}`}><Pencil className="size-3" /></button>
     <button type="button" onClick={onRemove} className="grid size-6 place-items-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label={`删除自定义滤镜组合 ${preset.name}`}><Trash2 className="size-3" /></button>
   </div>;
@@ -172,8 +186,13 @@ export default function Home() {
   const [editingBackgroundFilterPresetId, setEditingBackgroundFilterPresetId] = useState<string | null>(null);
   const [filterPresetName, setFilterPresetName] = useState("");
   const [filterPresetCategory, setFilterPresetCategory] = useState("未分类");
+  const [filterPresetCategoryColor, setFilterPresetCategoryColor] = useState("#64748b");
   const [filterPresetQuery, setFilterPresetQuery] = useState("");
   const [filterPresetCategoryFilter, setFilterPresetCategoryFilter] = useState("all");
+  const [pendingBackgroundPlan, setPendingBackgroundPlan] = useState<PendingBackgroundPlan | null>(null);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [shareQrDataUrl, setShareQrDataUrl] = useState("");
+  const [shareUrl, setShareUrl] = useState("");
   const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptTitle, setPromptTitle] = useState("");
@@ -313,14 +332,15 @@ export default function Home() {
       return;
     }
     const now = Date.now();
-    const preset = editingBackgroundFilterPresetId ? null : createCustomBackgroundFilterPreset(name, currentAppearance, filterPresetCategory);
+    const preset = editingBackgroundFilterPresetId ? null : createCustomBackgroundFilterPreset(name, currentAppearance, filterPresetCategory, filterPresetCategoryColor);
     const next = editingBackgroundFilterPresetId
-      ? customBackgroundFilterPresets.map(item => item.id === editingBackgroundFilterPresetId ? { ...item, name: name.slice(0, 20), category: filterPresetCategory.trim().slice(0, 16) || "未分类", updatedAt: now } : item)
+      ? customBackgroundFilterPresets.map(item => item.id === editingBackgroundFilterPresetId ? { ...item, name: name.slice(0, 20), category: filterPresetCategory.trim().slice(0, 16) || "未分类", categoryColor: filterPresetCategoryColor, updatedAt: now } : item)
       : [...customBackgroundFilterPresets, preset!];
     setCustomBackgroundFilterPresets(next);
     saveCustomBackgroundFilterPresets(next);
     setFilterPresetName("");
     setFilterPresetCategory("未分类");
+    setFilterPresetCategoryColor("#64748b");
     setEditingBackgroundFilterPresetId(null);
     setIsFilterPresetEditorOpen(false);
     toast.success(editingBackgroundFilterPresetId ? "滤镜组合已重命名。" : `已保存“${preset!.name}”滤镜组合。`);
@@ -330,6 +350,7 @@ export default function Home() {
     setEditingBackgroundFilterPresetId(preset.id);
     setFilterPresetName(preset.name);
     setFilterPresetCategory(preset.category);
+    setFilterPresetCategoryColor(preset.categoryColor);
     setIsFilterPresetEditorOpen(true);
   }
 
@@ -337,6 +358,7 @@ export default function Home() {
     setEditingBackgroundFilterPresetId(null);
     setFilterPresetName("");
     setFilterPresetCategory("未分类");
+    setFilterPresetCategoryColor("#64748b");
     setIsFilterPresetEditorOpen(false);
   }
 
@@ -357,6 +379,28 @@ export default function Home() {
     toast.success("背景方案已导出。", { description: "文件不包含背景图片、API Key、聊天记录或个人资料。" });
   }
 
+  function prepareBackgroundPlan(plan: BackgroundPlanExport, source: PendingBackgroundPlan["source"]) {
+    const existingSignatures = new Set(customBackgroundFilterPresets.map(preset => `${preset.name}|${preset.category}|${JSON.stringify(preset.filter)}`));
+    const availableSlots = Math.max(0, 12 - customBackgroundFilterPresets.length);
+    const additions = plan.customFilterPresets.filter(preset => !existingSignatures.has(`${preset.name}|${preset.category}|${JSON.stringify(preset.filter)}`)).slice(0, availableSlots);
+    const comparison = [
+      ["模糊", currentAppearance.backgroundBlur, plan.background.backgroundBlur, "px"], ["亮度", currentAppearance.backgroundBrightness, plan.background.backgroundBrightness, "%"], ["对比度", currentAppearance.backgroundContrast, plan.background.backgroundContrast, "%"], ["饱和度", currentAppearance.backgroundSaturation, plan.background.backgroundSaturation, "%"], ["色温", currentAppearance.backgroundTemperature, plan.background.backgroundTemperature, ""], ["暗角", currentAppearance.backgroundVignette, plan.background.backgroundVignette, "%"], ["颗粒", currentAppearance.backgroundGrain, plan.background.backgroundGrain, "%"], ["渐变透明度", Math.round(currentAppearance.backgroundGradientOpacity * 100), Math.round((plan.background.backgroundGradientOpacity ?? 0) * 100), "%"], ["背景缩放", currentAppearance.backgroundScale, plan.background.backgroundScale, "%"], ["背景位置", `${currentAppearance.backgroundPositionX}/${currentAppearance.backgroundPositionY}`, `${plan.background.backgroundPositionX}/${plan.background.backgroundPositionY}`, ""],
+    ] as const;
+    const differences = comparison.filter(([, current, incoming]) => current !== incoming).map(([label, current, incoming, unit]) => `${label}：${current}${unit} → ${incoming}${unit}`);
+    if (currentAppearance.backgroundGradientStart !== plan.background.backgroundGradientStart || currentAppearance.backgroundGradientEnd !== plan.background.backgroundGradientEnd || currentAppearance.backgroundGradientAngle !== plan.background.backgroundGradientAngle) differences.push("渐变颜色或方向将更新");
+    setPendingBackgroundPlan({ plan, additions, differences, source });
+  }
+
+  function applyPendingBackgroundPlan() {
+    if (!pendingBackgroundPlan) return;
+    const nextPresets = [...customBackgroundFilterPresets, ...pendingBackgroundPlan.additions];
+    updateActiveAppearance(pendingBackgroundPlan.plan.background);
+    setCustomBackgroundFilterPresets(nextPresets);
+    saveCustomBackgroundFilterPresets(nextPresets);
+    toast.success("背景方案已应用。", { description: `已更新当前 AI 背景，并新增 ${pendingBackgroundPlan.additions.length} 个滤镜组合。` });
+    setPendingBackgroundPlan(null);
+  }
+
   async function importBackgroundPlan(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -366,19 +410,34 @@ export default function Home() {
       return;
     }
     try {
-      const imported = parseBackgroundPlanImport(JSON.parse(await file.text()));
-      const existingSignatures = new Set(customBackgroundFilterPresets.map(preset => `${preset.name}|${preset.category}|${JSON.stringify(preset.filter)}`));
-      const availableSlots = Math.max(0, 12 - customBackgroundFilterPresets.length);
-      const additions = imported.customFilterPresets.filter(preset => !existingSignatures.has(`${preset.name}|${preset.category}|${JSON.stringify(preset.filter)}`)).slice(0, availableSlots);
-      const nextPresets = [...customBackgroundFilterPresets, ...additions];
-      updateActiveAppearance(imported.background);
-      setCustomBackgroundFilterPresets(nextPresets);
-      saveCustomBackgroundFilterPresets(nextPresets);
-      toast.success("背景方案已导入。", { description: `已应用当前背景，并新增 ${additions.length} 个滤镜组合。` });
+      prepareBackgroundPlan(parseBackgroundPlanImport(JSON.parse(await file.text())), "文件");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "背景方案导入失败。请确认选择正确的 JSON 文件。");
     }
   }
+
+  async function openBackgroundPlanShare() {
+    try {
+      const encoded = base64UrlEncode(createBackgroundPlanSharePayload(currentAppearance));
+      const url = `${window.location.origin}${window.location.pathname}?share=${encoded}`;
+      setShareUrl(url);
+      setShareQrDataUrl(await QRCode.toDataURL(url, { errorCorrectionLevel: "M", margin: 1, width: 260, color: { dark: "#0f172a", light: "#ffffff" } }));
+      setIsShareOpen(true);
+    } catch {
+      toast.error("二维码生成失败，请稍后再试。");
+    }
+  }
+
+  useEffect(() => {
+    const encoded = new URLSearchParams(window.location.search).get("share");
+    if (!encoded) return;
+    try {
+      prepareBackgroundPlan(parseBackgroundPlanSharePayload(base64UrlDecode(encoded)), "二维码");
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "二维码背景方案无法读取。");
+    }
+  }, []);
 
   function reorderCustomBackgroundFilterPresets(event: DragEndEvent) {
     const { active, over } = event;
@@ -768,9 +827,9 @@ export default function Home() {
             </div>
             <div className="flex items-center justify-between text-[10px] font-bold tracking-[0.08em] text-slate-500"><span>背景滤镜</span><button type="button" onClick={resetBackgroundEffects} className="font-medium tracking-normal text-sky-700 hover:underline">一键重置效果</button></div>
             <div><div className="mb-1 text-[10px] font-bold tracking-[0.08em] text-slate-500">滤镜风格</div><div className="grid grid-cols-2 gap-1.5">{BACKGROUND_FILTER_PRESETS.map(preset => { const active = sameBackgroundFilter(currentAppearance, preset.filter); return <button key={preset.id} type="button" onClick={() => applyBackgroundFilter(preset)} className={`overflow-hidden rounded-lg border text-left transition ${active ? "border-sky-400 bg-sky-50 ring-1 ring-sky-200" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`} aria-pressed={active} aria-label={`应用${preset.name}背景滤镜`}><span className="block h-6 bg-slate-200" style={{ backgroundImage: `linear-gradient(${backgroundTemperatureOverlay(preset.filter.backgroundTemperature)}, ${backgroundTemperatureOverlay(preset.filter.backgroundTemperature)}), url("${currentAppearance.backgroundImage}")`, backgroundBlendMode: "color, normal", backgroundPosition: `${currentAppearance.backgroundPositionX}% ${currentAppearance.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${currentAppearance.backgroundScale}%`, filter: `brightness(${preset.filter.backgroundBrightness}%) contrast(${preset.filter.backgroundContrast}%) saturate(${preset.filter.backgroundSaturation}%)` }} /><span className="block px-1.5 py-1 text-[9px] leading-tight text-slate-600"><b className="block text-slate-700">{preset.name}</b><span className="text-slate-400">{preset.note}</span></span></button>; })}</div></div>
-            <div className="rounded-lg border border-slate-200 bg-white p-1.5"><div className="flex items-center justify-between text-[10px] font-bold tracking-[0.08em] text-slate-500"><span>我的滤镜组合</span><button type="button" onClick={() => { if (isFilterPresetEditorOpen) resetBackgroundFilterPresetEditor(); else setIsFilterPresetEditorOpen(true); }} className="font-medium tracking-normal text-sky-700 hover:underline">{isFilterPresetEditorOpen ? "收起" : "保存当前"}</button></div>{isFilterPresetEditorOpen && <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] gap-1"><input autoFocus value={filterPresetName} onChange={event => setFilterPresetName(event.target.value)} maxLength={20} placeholder="例如：夜读氛围" className="min-w-0 rounded-md border border-slate-200 px-2 py-1 text-[10px] outline-none focus:border-sky-300" /><button type="button" onClick={saveCurrentBackgroundFilterPreset} className="rounded-md bg-sky-600 px-2 text-[10px] font-medium text-white hover:bg-sky-700">{editingBackgroundFilterPresetId ? "更新" : "保存"}</button><input value={filterPresetCategory} onChange={event => setFilterPresetCategory(event.target.value)} maxLength={16} placeholder="分类标签，例如：夜读" aria-label="滤镜组合分类标签" className="min-w-0 rounded-md border border-slate-200 px-2 py-1 text-[10px] outline-none focus:border-sky-300" />{editingBackgroundFilterPresetId && <button type="button" onClick={resetBackgroundFilterPresetEditor} className="rounded-md px-1.5 text-[10px] text-slate-500 hover:bg-slate-100">取消</button>}</div>}{customBackgroundFilterPresets.length === 0 ? <p className="py-1.5 text-center text-[10px] text-slate-400">保存当前参数后，可在任何 AI 中复用</p> : <><div className="mt-1.5 flex items-center gap-1 rounded-md border border-slate-200 px-1.5"><Search className="size-3 text-slate-400" /><input value={filterPresetQuery} onChange={event => setFilterPresetQuery(event.target.value)} placeholder="搜索名称或分类" aria-label="搜索滤镜组合" className="min-w-0 flex-1 bg-transparent py-1 text-[10px] outline-none" /></div><div className="mt-1 flex gap-1 overflow-x-auto pb-0.5">{backgroundFilterCategories.map(category => <button key={category} type="button" onClick={() => setFilterPresetCategoryFilter(category)} className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-medium ${filterPresetCategoryFilter === category ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>{category === "all" ? "全部" : category}</button>)}</div>{filteredBackgroundFilterPresets.length === 0 ? <p className="py-2 text-center text-[10px] text-slate-400">没有找到匹配的滤镜组合</p> : <><p className="mt-1.5 text-[9px] text-slate-400">按住左侧手柄可排序；铅笔可改名称和分类。</p><DndContext sensors={filterPresetSensors} collisionDetection={closestCenter} onDragEnd={reorderCustomBackgroundFilterPresets}><SortableContext items={filteredBackgroundFilterPresets.map(preset => preset.id)} strategy={verticalListSortingStrategy}><div className="mt-1 space-y-1">{filteredBackgroundFilterPresets.map(preset => <SortableBackgroundFilterPreset key={preset.id} preset={preset} onApply={() => applyBackgroundFilter(preset)} onRename={() => startRenameCustomBackgroundFilterPreset(preset)} onRemove={() => removeCustomBackgroundFilterPreset(preset.id)} />)}</div></SortableContext></DndContext></>}</>}</div>
+            <div className="rounded-lg border border-slate-200 bg-white p-1.5"><div className="flex items-center justify-between text-[10px] font-bold tracking-[0.08em] text-slate-500"><span>我的滤镜组合</span><button type="button" onClick={() => { if (isFilterPresetEditorOpen) resetBackgroundFilterPresetEditor(); else setIsFilterPresetEditorOpen(true); }} className="font-medium tracking-normal text-sky-700 hover:underline">{isFilterPresetEditorOpen ? "收起" : "保存当前"}</button></div>{isFilterPresetEditorOpen && <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] gap-1"><input autoFocus value={filterPresetName} onChange={event => setFilterPresetName(event.target.value)} maxLength={20} placeholder="例如：夜读氛围" className="min-w-0 rounded-md border border-slate-200 px-2 py-1 text-[10px] outline-none focus:border-sky-300" /><button type="button" onClick={saveCurrentBackgroundFilterPreset} className="rounded-md bg-sky-600 px-2 text-[10px] font-medium text-white hover:bg-sky-700">{editingBackgroundFilterPresetId ? "更新" : "保存"}</button><input value={filterPresetCategory} onChange={event => setFilterPresetCategory(event.target.value)} maxLength={16} placeholder="分类标签，例如：夜读" aria-label="滤镜组合分类标签" className="min-w-0 rounded-md border border-slate-200 px-2 py-1 text-[10px] outline-none focus:border-sky-300" /><label className="flex items-center justify-center rounded-md border border-slate-200 bg-white px-1" title="选择分类标签颜色"><input value={filterPresetCategoryColor} onChange={event => setFilterPresetCategoryColor(event.target.value)} type="color" aria-label="分类标签颜色" className="size-4 cursor-pointer border-0 bg-transparent p-0" /></label>{editingBackgroundFilterPresetId && <button type="button" onClick={resetBackgroundFilterPresetEditor} className="rounded-md px-1.5 text-[10px] text-slate-500 hover:bg-slate-100">取消</button>}</div>}{customBackgroundFilterPresets.length === 0 ? <p className="py-1.5 text-center text-[10px] text-slate-400">保存当前参数后，可在任何 AI 中复用</p> : <><div className="mt-1.5 flex items-center gap-1 rounded-md border border-slate-200 px-1.5"><Search className="size-3 text-slate-400" /><input value={filterPresetQuery} onChange={event => setFilterPresetQuery(event.target.value)} placeholder="搜索名称或分类" aria-label="搜索滤镜组合" className="min-w-0 flex-1 bg-transparent py-1 text-[10px] outline-none" /></div><div className="mt-1 flex gap-1 overflow-x-auto pb-0.5">{backgroundFilterCategories.map(category => { const color = customBackgroundFilterPresets.find(preset => preset.category === category)?.categoryColor ?? "#64748b"; return <button key={category} type="button" onClick={() => setFilterPresetCategoryFilter(category)} style={category === "all" ? undefined : { borderColor: color, color: filterPresetCategoryFilter === category ? color : undefined }} className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-medium ${filterPresetCategoryFilter === category ? "bg-sky-50" : "border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>{category === "all" ? "全部" : category}</button>; })}</div>{filteredBackgroundFilterPresets.length === 0 ? <p className="py-2 text-center text-[10px] text-slate-400">没有找到匹配的滤镜组合</p> : <><p className="mt-1.5 text-[9px] text-slate-400">按住左侧手柄可排序；铅笔可改名称、分类和颜色。</p><DndContext sensors={filterPresetSensors} collisionDetection={closestCenter} onDragEnd={reorderCustomBackgroundFilterPresets}><SortableContext items={filteredBackgroundFilterPresets.map(preset => preset.id)} strategy={verticalListSortingStrategy}><div className="mt-1 space-y-1">{filteredBackgroundFilterPresets.map(preset => <SortableBackgroundFilterPreset key={preset.id} preset={preset} onApply={() => applyBackgroundFilter(preset)} onRename={() => startRenameCustomBackgroundFilterPreset(preset)} onRemove={() => removeCustomBackgroundFilterPreset(preset.id)} />)}</div></SortableContext></DndContext></>}</>}</div>
             <div className="rounded-lg border border-slate-200 bg-white p-1.5"><div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.08em] text-slate-500"><span>渐变叠色层</span><span className="font-medium tracking-normal text-slate-400">{Math.round(currentAppearance.backgroundGradientOpacity * 100)}%</span></div><div className="mb-1.5 h-7 rounded-md border border-slate-200" aria-label="当前背景渐变叠色预览" style={{ backgroundImage: backgroundGradientOverlay(currentAppearance.backgroundGradientStart, currentAppearance.backgroundGradientEnd, Math.max(0.16, currentAppearance.backgroundGradientOpacity), currentAppearance.backgroundGradientAngle) }} /><div className="mb-1.5 grid grid-cols-5 gap-1">{BACKGROUND_GRADIENT_PRESETS.map(preset => { const active = currentAppearance.backgroundGradientStart === preset.gradient.backgroundGradientStart && currentAppearance.backgroundGradientEnd === preset.gradient.backgroundGradientEnd && currentAppearance.backgroundGradientOpacity === preset.gradient.backgroundGradientOpacity && currentAppearance.backgroundGradientAngle === preset.gradient.backgroundGradientAngle; return <button key={preset.id} type="button" onClick={() => applyGradientPreset(preset)} className={`overflow-hidden rounded-md border pb-1 text-[9px] ${active ? "border-sky-400 bg-sky-50 text-sky-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"}`} aria-pressed={active} aria-label={`应用${preset.name}渐变方案`}><span className="block h-4" style={{ backgroundImage: backgroundGradientOverlay(preset.gradient.backgroundGradientStart, preset.gradient.backgroundGradientEnd, Math.max(0.16, preset.gradient.backgroundGradientOpacity), preset.gradient.backgroundGradientAngle) }} /><span className="mt-0.5 block truncate px-0.5">{preset.name}</span></button>; })}</div><div className="grid grid-cols-2 gap-2"><label className="flex items-center gap-1 text-[10px] font-medium text-slate-600">起始色<input aria-label="渐变起始颜色" type="color" value={currentAppearance.backgroundGradientStart} onChange={event => updateActiveAppearance({ backgroundGradientStart: event.target.value })} className="ml-auto size-5 cursor-pointer rounded border-0 bg-transparent p-0" /></label><label className="flex items-center gap-1 text-[10px] font-medium text-slate-600">结束色<input aria-label="渐变结束颜色" type="color" value={currentAppearance.backgroundGradientEnd} onChange={event => updateActiveAppearance({ backgroundGradientEnd: event.target.value })} className="ml-auto size-5 cursor-pointer rounded border-0 bg-transparent p-0" /></label></div><div className="mt-1.5 grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">叠色透明度 <span className="float-right text-slate-400">{Math.round(currentAppearance.backgroundGradientOpacity * 100)}%</span><input aria-label="渐变叠色透明度" type="range" min="0" max="0.7" step="0.05" value={currentAppearance.backgroundGradientOpacity} onChange={event => updateActiveAppearance({ backgroundGradientOpacity: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">渐变方向 <span className="float-right text-slate-400">{currentAppearance.backgroundGradientAngle}°</span><input aria-label="渐变方向" type="range" min="0" max="360" step="15" value={currentAppearance.backgroundGradientAngle} onChange={event => updateActiveAppearance({ backgroundGradientAngle: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div></div>
-            <div className="grid grid-cols-2 gap-1.5"><button type="button" onClick={exportBackgroundPlan} className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50"><Download className="size-3" />导出背景方案</button><button type="button" onClick={() => backgroundPlanInputRef.current?.click()} className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50"><Upload className="size-3" />导入背景方案</button></div>
+            <div className="grid grid-cols-3 gap-1.5"><button type="button" onClick={exportBackgroundPlan} className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-1 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50"><Download className="size-3" />导出</button><button type="button" onClick={() => backgroundPlanInputRef.current?.click()} className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-1 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50"><Upload className="size-3" />导入</button><button type="button" onClick={openBackgroundPlanShare} className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-1 py-1.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50"><QrCode className="size-3" />二维码</button></div>
             <div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">背景饱和度 <span className="float-right text-slate-400">{currentAppearance.backgroundSaturation}%</span><input aria-label="背景饱和度" type="range" min="0" max="200" step="5" value={currentAppearance.backgroundSaturation} onChange={event => updateActiveAppearance({ backgroundSaturation: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">色温 <span className="float-right text-slate-400">{(currentAppearance.backgroundTemperature ?? 0) > 0 ? `暖 ${currentAppearance.backgroundTemperature ?? 0}` : (currentAppearance.backgroundTemperature ?? 0) < 0 ? `冷 ${Math.abs(currentAppearance.backgroundTemperature ?? 0)}` : "中性"}</span><input aria-label="背景色温" type="range" min="-100" max="100" step="5" value={currentAppearance.backgroundTemperature ?? 0} onChange={event => updateActiveAppearance({ backgroundTemperature: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div>
             <div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">背景暗角 <span className="float-right text-slate-400">{currentAppearance.backgroundVignette}%</span><input aria-label="背景暗角" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundVignette} onChange={event => updateActiveAppearance({ backgroundVignette: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">背景颗粒 <span className="float-right text-slate-400">{currentAppearance.backgroundGrain}%</span><input aria-label="背景颗粒" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundGrain} onChange={event => updateActiveAppearance({ backgroundGrain: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div>
             <div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">背景模糊 <span className="float-right text-slate-400">{currentAppearance.backgroundBlur}px</span><input aria-label="背景模糊度" type="range" min="0" max="16" step="1" value={currentAppearance.backgroundBlur} onChange={event => updateActiveAppearance({ backgroundBlur: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">背景亮度 <span className="float-right text-slate-400">{currentAppearance.backgroundBrightness}%</span><input aria-label="背景亮度" type="range" min="60" max="140" step="5" value={currentAppearance.backgroundBrightness} onChange={event => updateActiveAppearance({ backgroundBrightness: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">背景对比度 <span className="float-right text-slate-400">{currentAppearance.backgroundContrast}%</span><input aria-label="背景对比度" type="range" min="60" max="160" step="5" value={currentAppearance.backgroundContrast} onChange={event => updateActiveAppearance({ backgroundContrast: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">文字保护层 <span className="float-right text-slate-400">{Math.round((currentAppearance.backgroundOpacity ?? 0.72) * 100)}%</span><input aria-label="背景文字保护层透明度" type="range" min="0.18" max="0.92" step="0.02" value={currentAppearance.backgroundOpacity ?? 0.72} onChange={event => updateActiveAppearance({ backgroundOpacity: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div><label className="block text-[10px] font-medium text-slate-600">背景缩放 <span className="float-right text-slate-400">{currentAppearance.backgroundScale}%</span><input aria-label="背景缩放比例" type="range" min="100" max="200" step="5" value={currentAppearance.backgroundScale} onChange={event => updateActiveAppearance({ backgroundScale: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">水平位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionX}%</span><input aria-label="背景水平位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionX} onChange={event => updateActiveAppearance({ backgroundPositionX: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">垂直位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionY}%</span><input aria-label="背景垂直位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionY} onChange={event => updateActiveAppearance({ backgroundPositionY: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div>
@@ -840,6 +899,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+      {pendingBackgroundPlan && <div className="fixed inset-0 z-[70] grid place-items-end bg-slate-950/35 p-3 sm:place-items-center" role="dialog" aria-modal="true" aria-label="导入背景方案差异预览"><div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-slate-800">导入前确认</p><p className="mt-0.5 text-[11px] text-slate-500">来源：{pendingBackgroundPlan.source}。仅会修改当前 AI 的背景效果。</p></div><button type="button" onClick={() => setPendingBackgroundPlan(null)} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="取消导入"><X className="size-4" /></button></div><div className="mt-3 rounded-xl bg-slate-50 p-2.5"><p className="text-[10px] font-bold tracking-[0.08em] text-slate-500">与当前背景的差异</p>{pendingBackgroundPlan.differences.length === 0 ? <p className="mt-1 text-xs text-slate-500">背景参数相同；仍可导入新的滤镜组合。</p> : <ul className="mt-1.5 max-h-36 space-y-1 overflow-y-auto text-xs text-slate-600">{pendingBackgroundPlan.differences.map(item => <li key={item} className="rounded-md bg-white px-2 py-1">{item}</li>)}</ul>}</div><p className="mt-2 text-[11px] text-slate-500">将新增 <b className="text-slate-700">{pendingBackgroundPlan.additions.length}</b> 个非重复滤镜组合；背景图片、API Key、聊天记录和个人资料不会被导入。</p><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => setPendingBackgroundPlan(null)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50">取消</button><button type="button" onClick={applyPendingBackgroundPlan} className="rounded-xl bg-sky-600 px-3 py-2 text-xs font-medium text-white hover:bg-sky-700">确认应用</button></div></div></div>}
+      {isShareOpen && <div className="fixed inset-0 z-[70] grid place-items-end bg-slate-950/35 p-3 sm:place-items-center" role="dialog" aria-modal="true" aria-label="二维码分享背景方案"><div className="w-full max-w-sm rounded-2xl bg-white p-4 text-center shadow-2xl"><div className="flex items-start justify-between"><div className="text-left"><p className="text-sm font-bold text-slate-800">扫码分享背景方案</p><p className="mt-0.5 text-[11px] text-slate-500">其他设备扫码后先预览，再确认应用。</p></div><button type="button" onClick={() => setIsShareOpen(false)} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="关闭二维码分享"><X className="size-4" /></button></div>{shareQrDataUrl && <img src={shareQrDataUrl} alt="当前背景方案二维码" className="mx-auto mt-3 size-52 rounded-xl border border-slate-100 p-2" />}<p className="mt-2 text-[11px] text-slate-500">二维码不包含背景图片、API Key、聊天记录或个人资料。</p><button type="button" onClick={() => navigator.clipboard?.writeText(shareUrl).then(() => toast.success("分享链接已复制。")).catch(() => toast.error("复制失败，请截图二维码分享。"))} className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"><Share2 className="size-3.5" />复制分享链接</button></div></div>}
     </main>
   );
 }
