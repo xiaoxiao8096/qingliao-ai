@@ -7,6 +7,10 @@ export type AIAppearance = {
   chatTexture: "plain" | "dots" | "grid" | "paper";
   /** 当前 AI 的本机聊天背景，使用压缩后的 data URL 保存。 */
   backgroundImage?: string;
+  /** 背景图片的模糊程度（px），用于提升文字可读性。 */
+  backgroundBlur?: number;
+  /** 背景上的浅色保护层透明度（0-1），数值越大文字越清晰。 */
+  backgroundOpacity?: number;
 };
 
 export type AppearancePreset = {
@@ -17,7 +21,7 @@ export type AppearancePreset = {
 };
 
 export const DEFAULT_AI_APPEARANCE: AIAppearance = {
-  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain",
+  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundOpacity: 0.72,
 };
 
 export const BUILTIN_AI_THEMES = [
@@ -27,6 +31,15 @@ export const BUILTIN_AI_THEMES = [
   { id: "forest-paper", name: "森林纸", note: "自然、耐读", appearance: { accent: "emerald", fontScale: "medium", bubbleRadius: "soft", chatTexture: "paper" } },
   { id: "warm-amber", name: "暖阳黄", note: "明亮、有温度", appearance: { accent: "amber", fontScale: "large", bubbleRadius: "pill", chatTexture: "plain" } },
 ] as const satisfies ReadonlyArray<{ id: string; name: string; note: string; appearance: AIAppearance }>;
+
+export const DEFAULT_PROMPT_SHORTCUTS = [
+  { id: "summarize", title: "快速总结", prompt: "请帮我把下面内容提炼成清晰的要点和结论：\n\n" },
+  { id: "polish", title: "润色表达", prompt: "请帮我润色下面这段文字，使表达自然、清楚且保留原意：\n\n" },
+  { id: "plan", title: "制定计划", prompt: "请帮我为下面的目标制定一份可执行的分步计划：\n\n" },
+  { id: "brainstorm", title: "头脑风暴", prompt: "围绕下面的主题，给我提供一些有创意、可落地的思路：\n\n" },
+  { id: "explain", title: "解释概念", prompt: "请用通俗易懂的方式解释下面的概念，并举一个例子：\n\n" },
+  { id: "translate", title: "翻译改写", prompt: "请将下面内容翻译并改写得自然流畅：\n\n" },
+] as const;
 
 export type LocalAIProfile = LocalModelSettings & {
   id: string;
@@ -90,7 +103,14 @@ export function createProfileId() {
 }
 
 function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
-  return { ...DEFAULT_AI_APPEARANCE, ...value };
+  const appearance = { ...DEFAULT_AI_APPEARANCE, ...value };
+  const blur = Number(value?.backgroundBlur);
+  const opacity = Number(value?.backgroundOpacity);
+  return {
+    ...appearance,
+    backgroundBlur: Number.isFinite(blur) ? Math.min(16, Math.max(0, blur)) : 0,
+    backgroundOpacity: Number.isFinite(opacity) ? Math.min(0.92, Math.max(0.18, opacity)) : 0.72,
+  };
 }
 
 export function getAppearancePresets(): AppearancePreset[] {
@@ -113,7 +133,9 @@ export function createAppearancePreset(name: string, appearance: AIAppearance): 
 export function getAIProfiles(): LocalAIProfile[] {
   const saved = parse<LocalAIProfile[]>(AI_PROFILES_KEY, []);
   if (Array.isArray(saved) && saved.length > 0) {
-    return saved.filter(profile => profile && typeof profile.id === "string" && typeof profile.name === "string");
+    return saved
+      .filter(profile => profile && typeof profile.id === "string" && typeof profile.name === "string")
+      .map(profile => ({ ...profile, appearance: normalizedAppearance(profile.appearance) }));
   }
   const initial = defaultAI();
   saveAIProfiles([initial]);

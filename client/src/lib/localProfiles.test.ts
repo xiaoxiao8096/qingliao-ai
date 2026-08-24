@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendLocalMessages, conversationsForAI, createConversation } from "./localChat";
 import {
   BUILTIN_AI_THEMES,
+  DEFAULT_PROMPT_SHORTCUTS,
   createAppearancePreset,
   createAIProfile,
   getActiveAIId,
@@ -49,7 +50,7 @@ describe("local multi-AI profiles", () => {
     saveAIProfiles([first, second]);
 
     expect(getAIProfiles().find(profile => profile.id === first.id)?.appearance?.accent).toBe("sky");
-    expect(getAIProfiles().find(profile => profile.id === "second-ai")?.appearance).toEqual(second.appearance);
+    expect(getAIProfiles().find(profile => profile.id === "second-ai")?.appearance).toMatchObject(second.appearance);
   });
 
   it("keeps custom chat backgrounds isolated with each AI appearance", () => {
@@ -62,9 +63,23 @@ describe("local multi-AI profiles", () => {
     expect(getAIProfiles().find(profile => profile.id === "second-ai")?.appearance?.backgroundImage).toContain("second-background");
   });
 
+  it("normalizes saved background readability controls for each AI", () => {
+    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundOpacity: 0 } };
+    saveAIProfiles([first]);
+    const restored = getAIProfiles()[0].appearance;
+
+    expect(restored?.backgroundBlur).toBe(16);
+    expect(restored?.backgroundOpacity).toBe(0.18);
+  });
+
   it("provides complete built-in themes ready for one-click application", () => {
     expect(BUILTIN_AI_THEMES.map(theme => theme.name)).toEqual(["清透蓝", "暮光紫", "莓果粉", "森林纸", "暖阳黄"]);
     expect(BUILTIN_AI_THEMES.every(theme => theme.appearance.accent && theme.appearance.bubbleRadius && theme.appearance.chatTexture)).toBe(true);
+  });
+
+  it("provides editable prompt shortcuts for common chat starts", () => {
+    expect(DEFAULT_PROMPT_SHORTCUTS).toHaveLength(6);
+    expect(DEFAULT_PROMPT_SHORTCUTS.every(shortcut => shortcut.title && shortcut.prompt.endsWith("\n\n"))).toBe(true);
   });
 
   it("saves named appearance presets separately from AI profiles", () => {
