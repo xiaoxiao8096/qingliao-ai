@@ -5,16 +5,19 @@ import {
   BACKGROUND_LAYOUT_PRESETS,
   BUILTIN_AI_THEMES,
   DEFAULT_PROMPT_SHORTCUTS,
+  createCustomBackgroundFilterPreset,
   createCustomPromptShortcut,
   createAppearancePreset,
   createAIProfile,
   getActiveAIId,
   getAIProfiles,
+  getCustomBackgroundFilterPresets,
   getAppearancePresets,
   getUserProfile,
   getCustomPromptShortcuts,
   saveAppearancePresets,
   saveAIProfiles,
+  saveCustomBackgroundFilterPresets,
   saveCustomPromptShortcuts,
   saveUserProfile,
   setActiveAIId,
@@ -134,6 +137,15 @@ describe("local multi-AI profiles", () => {
 
     expect(getCustomPromptShortcuts()).toMatchObject([{ id: shortcut.id, title: "周报整理", prompt: "请帮我整理本周工作周报：" }]);
     expect(getAIProfiles()[0].name).toBe("我的 AI");
+  });
+
+  it("saves reusable custom background filter presets separately from AI profiles", () => {
+    const appearance = { accent: "violet" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "grid" as const, backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18 };
+    const preset = createCustomBackgroundFilterPreset("夜读氛围", appearance);
+    saveCustomBackgroundFilterPresets([preset]);
+
+    expect(getCustomBackgroundFilterPresets()).toMatchObject([{ id: preset.id, name: "夜读氛围", filter: { backgroundBlur: 16, backgroundBrightness: 140, backgroundContrast: 60, backgroundSaturation: 160, backgroundTemperature: -40, backgroundVignette: 45, backgroundGrain: 18 } }]);
+    expect(getAIProfiles()[0].appearance?.backgroundBrightness).toBe(100);
   });
 
   it("saves named appearance presets separately from AI profiles", () => {

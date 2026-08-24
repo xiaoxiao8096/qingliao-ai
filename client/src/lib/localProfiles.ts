@@ -34,6 +34,23 @@ export type AppearancePreset = {
   createdAt: number;
 };
 
+export type BackgroundFilter = {
+  backgroundBlur: number;
+  backgroundBrightness: number;
+  backgroundContrast: number;
+  backgroundSaturation: number;
+  backgroundTemperature: number;
+  backgroundVignette: number;
+  backgroundGrain: number;
+};
+
+export type CustomBackgroundFilterPreset = {
+  id: string;
+  name: string;
+  filter: BackgroundFilter;
+  createdAt: number;
+};
+
 export type CustomPromptShortcut = {
   id: string;
   title: string;
@@ -120,6 +137,7 @@ const ACTIVE_AI_KEY = "qingliao.personal.active-ai.v1";
 const USER_PROFILE_KEY = "qingliao.personal.user-profile.v1";
 const APPEARANCE_PRESETS_KEY = "qingliao.personal.appearance-presets.v1";
 const CUSTOM_PROMPT_SHORTCUTS_KEY = "qingliao.personal.prompt-shortcuts.v1";
+const CUSTOM_BACKGROUND_FILTER_PRESETS_KEY = "qingliao.personal.background-filter-presets.v1";
 export const DEFAULT_AI_ID = "default-ai";
 
 function storage() {
@@ -187,6 +205,19 @@ function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
   };
 }
 
+export function normalizedBackgroundFilter(value?: Partial<AIAppearance>): BackgroundFilter {
+  const appearance = normalizedAppearance(value);
+  return {
+    backgroundBlur: appearance.backgroundBlur ?? 0,
+    backgroundBrightness: appearance.backgroundBrightness ?? 100,
+    backgroundContrast: appearance.backgroundContrast ?? 100,
+    backgroundSaturation: appearance.backgroundSaturation ?? 100,
+    backgroundTemperature: appearance.backgroundTemperature ?? 0,
+    backgroundVignette: appearance.backgroundVignette ?? 0,
+    backgroundGrain: appearance.backgroundGrain ?? 0,
+  };
+}
+
 function normalizedPromptShortcut(value: Partial<CustomPromptShortcut>): CustomPromptShortcut | null {
   const title = value.title?.trim().slice(0, 24) ?? "";
   const prompt = value.prompt?.trim().slice(0, 600) ?? "";
@@ -208,6 +239,23 @@ export function saveCustomPromptShortcuts(shortcuts: CustomPromptShortcut[]) {
 export function createCustomPromptShortcut(title: string, prompt: string): CustomPromptShortcut {
   const now = Date.now();
   return { id: createProfileId(), title: title.trim().slice(0, 24), prompt: prompt.trim().slice(0, 600), createdAt: now, updatedAt: now };
+}
+
+export function getCustomBackgroundFilterPresets(): CustomBackgroundFilterPreset[] {
+  const saved = parse<CustomBackgroundFilterPreset[]>(CUSTOM_BACKGROUND_FILTER_PRESETS_KEY, []);
+  if (!Array.isArray(saved)) return [];
+  return saved
+    .filter(preset => preset && typeof preset.id === "string" && typeof preset.name === "string" && preset.name.trim() && preset.filter)
+    .slice(0, 12)
+    .map(preset => ({ id: preset.id, name: preset.name.trim().slice(0, 20), filter: normalizedBackgroundFilter(preset.filter), createdAt: Number(preset.createdAt) || Date.now() }));
+}
+
+export function saveCustomBackgroundFilterPresets(presets: CustomBackgroundFilterPreset[]) {
+  storage()?.setItem(CUSTOM_BACKGROUND_FILTER_PRESETS_KEY, JSON.stringify(presets.slice(0, 12)));
+}
+
+export function createCustomBackgroundFilterPreset(name: string, appearance: AIAppearance): CustomBackgroundFilterPreset {
+  return { id: createProfileId(), name: name.trim().slice(0, 20), filter: normalizedBackgroundFilter(appearance), createdAt: Date.now() };
 }
 
 export function getAppearancePresets(): AppearancePreset[] {
