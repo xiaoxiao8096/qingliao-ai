@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendLocalMessages, conversationsForAI, createConversation } from "./localChat";
 import {
+  BACKGROUND_FILTER_PRESETS,
   BACKGROUND_LAYOUT_PRESETS,
   BUILTIN_AI_THEMES,
   DEFAULT_PROMPT_SHORTCUTS,
@@ -68,13 +69,15 @@ describe("local multi-AI profiles", () => {
   });
 
   it("normalizes saved background readability controls for each AI", () => {
-    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundOpacity: 0 } };
+    const first = { ...getAIProfiles()[0], appearance: { accent: "sky" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "plain" as const, backgroundImage: "data:image/jpeg;base64,background", backgroundBlur: 99, backgroundBrightness: 999, backgroundContrast: 0, backgroundSaturation: 999, backgroundTemperature: -999, backgroundOpacity: 0 } };
     saveAIProfiles([first]);
     const restored = getAIProfiles()[0].appearance;
 
     expect(restored?.backgroundBlur).toBe(16);
     expect(restored?.backgroundBrightness).toBe(140);
     expect(restored?.backgroundContrast).toBe(60);
+    expect(restored?.backgroundSaturation).toBe(200);
+    expect(restored?.backgroundTemperature).toBe(-100);
     expect(restored?.backgroundOpacity).toBe(0.18);
   });
 
@@ -103,6 +106,12 @@ describe("local multi-AI profiles", () => {
     expect(BACKGROUND_LAYOUT_PRESETS[0].layout).toEqual({ backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50 });
     expect(BACKGROUND_LAYOUT_PRESETS.find(preset => preset.id === "portrait")?.layout).toEqual({ backgroundScale: 150, backgroundPositionX: 50, backgroundPositionY: 20 });
     expect(BACKGROUND_LAYOUT_PRESETS.every(preset => preset.layout.backgroundScale >= 100 && preset.layout.backgroundScale <= 200 && preset.layout.backgroundPositionX >= 0 && preset.layout.backgroundPositionX <= 100 && preset.layout.backgroundPositionY >= 0 && preset.layout.backgroundPositionY <= 100)).toBe(true);
+  });
+
+  it("provides safe one-click background filter presets", () => {
+    expect(BACKGROUND_FILTER_PRESETS.map(preset => preset.name)).toEqual(["原片", "复古", "黑白", "电影感"]);
+    expect(BACKGROUND_FILTER_PRESETS.find(preset => preset.id === "mono")?.filter.backgroundSaturation).toBe(0);
+    expect(BACKGROUND_FILTER_PRESETS.every(preset => preset.filter.backgroundBrightness >= 60 && preset.filter.backgroundBrightness <= 140 && preset.filter.backgroundContrast >= 60 && preset.filter.backgroundContrast <= 160 && preset.filter.backgroundSaturation >= 0 && preset.filter.backgroundSaturation <= 200 && preset.filter.backgroundTemperature >= -100 && preset.filter.backgroundTemperature <= 100)).toBe(true);
   });
 
   it("provides complete built-in themes ready for one-click application", () => {

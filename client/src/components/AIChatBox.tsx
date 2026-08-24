@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
 import { getLocalDraft, saveLocalDraft } from "@/lib/localChat";
+import { backgroundTemperatureOverlay } from "@/lib/localProfiles";
 import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff, RefreshCw, ThumbsUp, ThumbsDown, Pencil, Trash2, Check } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Streamdown } from "streamdown";
@@ -58,9 +59,11 @@ export type AIChatBoxProps = {
   backgroundImage?: string;
   /** 背景图片模糊程度，单位为像素。 */
   backgroundBlur?: number;
-  /** 背景图片的亮度与对比度。 */
+  /** 背景图片的亮度、对比度、饱和度与色温。 */
   backgroundBrightness?: number;
   backgroundContrast?: number;
+  backgroundSaturation?: number;
+  backgroundTemperature?: number;
   /** 背景图片上的浅色保护层透明度。 */
   backgroundOpacity?: number;
   /** 背景图片缩放比例与定位。 */
@@ -125,6 +128,8 @@ export function AIChatBox({
   backgroundBlur = 0,
   backgroundBrightness = 100,
   backgroundContrast = 100,
+  backgroundSaturation = 100,
+  backgroundTemperature = 0,
   backgroundOpacity = 0.72,
   backgroundScale = 100,
   backgroundPositionX = 50,
@@ -328,7 +333,7 @@ export function AIChatBox({
     >
       {/* Messages Area */}
       <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden">
-        {backgroundImage && <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), url("${backgroundImage}")`, backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px) brightness(${backgroundBrightness}%) contrast(${backgroundContrast}%)` }} />}
+        {backgroundImage && <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), linear-gradient(${backgroundTemperatureOverlay(backgroundTemperature)}, ${backgroundTemperatureOverlay(backgroundTemperature)}), url("${backgroundImage}")`, backgroundBlendMode: "normal, color, normal", backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px) brightness(${backgroundBrightness}%) contrast(${backgroundContrast}%) saturate(${backgroundSaturation}%)` }} />}
         <div className="relative z-[1] h-full">
           {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">

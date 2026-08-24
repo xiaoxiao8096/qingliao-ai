@@ -25,7 +25,7 @@ import {
 } from "@/lib/localChat";
 import { useThemePreference } from "@/contexts/ThemeContext";
 import { toPersistedAttachment, type Attachment } from "@/lib/attachments";
-import { backgroundImageFileToDataUrl, BACKGROUND_LAYOUT_PRESETS, BUILTIN_AI_THEMES, createCustomPromptShortcut, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getCustomPromptShortcuts, getUserProfile, saveAIProfiles, saveCustomPromptShortcuts, setActiveAIId, type AIAppearance, type CustomPromptShortcut, type LocalAIProfile } from "@/lib/localProfiles";
+import { backgroundImageFileToDataUrl, BACKGROUND_FILTER_PRESETS, BACKGROUND_LAYOUT_PRESETS, backgroundTemperatureOverlay, BUILTIN_AI_THEMES, createCustomPromptShortcut, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getCustomPromptShortcuts, getUserProfile, saveAIProfiles, saveCustomPromptShortcuts, setActiveAIId, type AIAppearance, type CustomPromptShortcut, type LocalAIProfile } from "@/lib/localProfiles";
 import {
   Check,
   ChevronRight,
@@ -110,6 +110,14 @@ function sameBackgroundLayout(appearance: AIAppearance, layout: { backgroundScal
     && appearance.backgroundPositionY === layout.backgroundPositionY;
 }
 
+function sameBackgroundFilter(appearance: AIAppearance, filter: { backgroundBlur: number; backgroundBrightness: number; backgroundContrast: number; backgroundSaturation: number; backgroundTemperature: number }) {
+  return appearance.backgroundBlur === filter.backgroundBlur
+    && appearance.backgroundBrightness === filter.backgroundBrightness
+    && appearance.backgroundContrast === filter.backgroundContrast
+    && appearance.backgroundSaturation === filter.backgroundSaturation
+    && appearance.backgroundTemperature === filter.backgroundTemperature;
+}
+
 export default function Home() {
   const [, setLocation] = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -143,7 +151,7 @@ export default function Home() {
   useEffect(() => () => { abortRef.current?.abort(); if (drawerCloseTimer.current !== null) window.clearTimeout(drawerCloseTimer.current); }, []);
   const activeAI = profiles.find(profile => profile.id === activeAIId) ?? profiles[0];
 
-  const currentAppearance = { ...DEFAULT_AI_APPEARANCE, ...activeAI?.appearance };
+  const currentAppearance = { ...DEFAULT_AI_APPEARANCE, ...activeAI?.appearance, backgroundSaturation: activeAI?.appearance?.backgroundSaturation ?? DEFAULT_AI_APPEARANCE.backgroundSaturation, backgroundTemperature: activeAI?.appearance?.backgroundTemperature ?? DEFAULT_AI_APPEARANCE.backgroundTemperature };
 
   useEffect(() => {
     const appearance = { ...DEFAULT_AI_APPEARANCE, ...activeAI?.appearance };
@@ -235,6 +243,8 @@ export default function Home() {
       backgroundBlur: DEFAULT_AI_APPEARANCE.backgroundBlur,
       backgroundBrightness: DEFAULT_AI_APPEARANCE.backgroundBrightness,
       backgroundContrast: DEFAULT_AI_APPEARANCE.backgroundContrast,
+      backgroundSaturation: DEFAULT_AI_APPEARANCE.backgroundSaturation,
+      backgroundTemperature: DEFAULT_AI_APPEARANCE.backgroundTemperature,
     });
     toast.success("背景滤镜已重置。");
   }
@@ -242,6 +252,11 @@ export default function Home() {
   function applyBackgroundLayout(layout: { name: string; layout: { backgroundScale: number; backgroundPositionX: number; backgroundPositionY: number } }) {
     updateActiveAppearance(layout.layout);
     toast.success(`已应用${layout.name}布局。`);
+  }
+
+  function applyBackgroundFilter(preset: { name: string; filter: { backgroundBlur: number; backgroundBrightness: number; backgroundContrast: number; backgroundSaturation: number; backgroundTemperature: number } }) {
+    updateActiveAppearance(preset.filter);
+    toast.success(`已应用${preset.name}滤镜。`);
   }
 
   function updateCropPosition(event: React.PointerEvent<HTMLDivElement>) {
@@ -581,7 +596,7 @@ export default function Home() {
                 onPointerUp={stopCropDrag}
                 onPointerCancel={stopCropDrag}
               >
-                <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `url("${currentAppearance.backgroundImage}")`, backgroundPosition: `${currentAppearance.backgroundPositionX}% ${currentAppearance.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${currentAppearance.backgroundScale}%`, filter: `blur(${currentAppearance.backgroundBlur}px) brightness(${currentAppearance.backgroundBrightness}%) contrast(${currentAppearance.backgroundContrast}%)` }} />
+                <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(${backgroundTemperatureOverlay(currentAppearance.backgroundTemperature)}, ${backgroundTemperatureOverlay(currentAppearance.backgroundTemperature)}), url("${currentAppearance.backgroundImage}")`, backgroundBlendMode: "color, normal", backgroundPosition: `${currentAppearance.backgroundPositionX}% ${currentAppearance.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${currentAppearance.backgroundScale}%`, filter: `blur(${currentAppearance.backgroundBlur}px) brightness(${currentAppearance.backgroundBrightness}%) contrast(${currentAppearance.backgroundContrast}%) saturate(${currentAppearance.backgroundSaturation}%)` }} />
                 <div className="pointer-events-none absolute inset-x-4 inset-y-3 rounded-md border-2 border-white/90 shadow-[0_0_0_999px_rgb(15_23_42/0.16)]">
                   <span className="absolute bottom-0 left-1/3 top-0 border-l border-dashed border-white/70" />
                   <span className="absolute bottom-0 left-2/3 top-0 border-l border-dashed border-white/70" />
@@ -597,12 +612,14 @@ export default function Home() {
               <div className="grid grid-cols-3 gap-1.5">{BACKGROUND_LAYOUT_PRESETS.map(preset => {
                 const active = sameBackgroundLayout(currentAppearance, preset.layout);
                 return <button key={preset.id} type="button" onClick={() => applyBackgroundLayout(preset)} className={`overflow-hidden rounded-lg border text-left transition ${active ? "border-sky-400 bg-sky-50 ring-1 ring-sky-200" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`} aria-pressed={active} aria-label={`应用${preset.name}背景布局`}>
-                  <span className="block h-7 bg-slate-200" style={{ backgroundImage: `linear-gradient(rgb(15 23 42 / 0.15), rgb(15 23 42 / 0.15)), url("${currentAppearance.backgroundImage}")`, backgroundPosition: `${preset.layout.backgroundPositionX}% ${preset.layout.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${preset.layout.backgroundScale}%`, filter: `brightness(${currentAppearance.backgroundBrightness}%) contrast(${currentAppearance.backgroundContrast}%)` }} />
+                  <span className="block h-7 bg-slate-200" style={{ backgroundImage: `linear-gradient(rgb(15 23 42 / 0.15), rgb(15 23 42 / 0.15)), linear-gradient(${backgroundTemperatureOverlay(currentAppearance.backgroundTemperature)}, ${backgroundTemperatureOverlay(currentAppearance.backgroundTemperature)}), url("${currentAppearance.backgroundImage}")`, backgroundBlendMode: "normal, color, normal", backgroundPosition: `${preset.layout.backgroundPositionX}% ${preset.layout.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${preset.layout.backgroundScale}%`, filter: `brightness(${currentAppearance.backgroundBrightness}%) contrast(${currentAppearance.backgroundContrast}%) saturate(${currentAppearance.backgroundSaturation}%)` }} />
                   <span className="block px-1.5 py-1 text-[9px] leading-tight text-slate-600"><b className="block text-slate-700">{preset.name}</b><span className="text-slate-400">{preset.note}</span></span>
                 </button>;
               })}</div>
             </div>
             <div className="flex items-center justify-between text-[10px] font-bold tracking-[0.08em] text-slate-500"><span>背景滤镜</span><button type="button" onClick={resetBackgroundFilters} className="font-medium tracking-normal text-sky-700 hover:underline">重置滤镜</button></div>
+            <div><div className="mb-1 text-[10px] font-bold tracking-[0.08em] text-slate-500">滤镜风格</div><div className="grid grid-cols-2 gap-1.5">{BACKGROUND_FILTER_PRESETS.map(preset => { const active = sameBackgroundFilter(currentAppearance, preset.filter); return <button key={preset.id} type="button" onClick={() => applyBackgroundFilter(preset)} className={`overflow-hidden rounded-lg border text-left transition ${active ? "border-sky-400 bg-sky-50 ring-1 ring-sky-200" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`} aria-pressed={active} aria-label={`应用${preset.name}背景滤镜`}><span className="block h-6 bg-slate-200" style={{ backgroundImage: `linear-gradient(${backgroundTemperatureOverlay(preset.filter.backgroundTemperature)}, ${backgroundTemperatureOverlay(preset.filter.backgroundTemperature)}), url("${currentAppearance.backgroundImage}")`, backgroundBlendMode: "color, normal", backgroundPosition: `${currentAppearance.backgroundPositionX}% ${currentAppearance.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${currentAppearance.backgroundScale}%`, filter: `brightness(${preset.filter.backgroundBrightness}%) contrast(${preset.filter.backgroundContrast}%) saturate(${preset.filter.backgroundSaturation}%)` }} /><span className="block px-1.5 py-1 text-[9px] leading-tight text-slate-600"><b className="block text-slate-700">{preset.name}</b><span className="text-slate-400">{preset.note}</span></span></button>; })}</div></div>
+            <div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">背景饱和度 <span className="float-right text-slate-400">{currentAppearance.backgroundSaturation}%</span><input aria-label="背景饱和度" type="range" min="0" max="200" step="5" value={currentAppearance.backgroundSaturation} onChange={event => updateActiveAppearance({ backgroundSaturation: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">色温 <span className="float-right text-slate-400">{(currentAppearance.backgroundTemperature ?? 0) > 0 ? `暖 ${currentAppearance.backgroundTemperature ?? 0}` : (currentAppearance.backgroundTemperature ?? 0) < 0 ? `冷 ${Math.abs(currentAppearance.backgroundTemperature ?? 0)}` : "中性"}</span><input aria-label="背景色温" type="range" min="-100" max="100" step="5" value={currentAppearance.backgroundTemperature ?? 0} onChange={event => updateActiveAppearance({ backgroundTemperature: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div>
             <div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">背景模糊 <span className="float-right text-slate-400">{currentAppearance.backgroundBlur}px</span><input aria-label="背景模糊度" type="range" min="0" max="16" step="1" value={currentAppearance.backgroundBlur} onChange={event => updateActiveAppearance({ backgroundBlur: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">背景亮度 <span className="float-right text-slate-400">{currentAppearance.backgroundBrightness}%</span><input aria-label="背景亮度" type="range" min="60" max="140" step="5" value={currentAppearance.backgroundBrightness} onChange={event => updateActiveAppearance({ backgroundBrightness: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">背景对比度 <span className="float-right text-slate-400">{currentAppearance.backgroundContrast}%</span><input aria-label="背景对比度" type="range" min="60" max="160" step="5" value={currentAppearance.backgroundContrast} onChange={event => updateActiveAppearance({ backgroundContrast: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">文字保护层 <span className="float-right text-slate-400">{Math.round((currentAppearance.backgroundOpacity ?? 0.72) * 100)}%</span><input aria-label="背景文字保护层透明度" type="range" min="0.18" max="0.92" step="0.02" value={currentAppearance.backgroundOpacity ?? 0.72} onChange={event => updateActiveAppearance({ backgroundOpacity: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div><label className="block text-[10px] font-medium text-slate-600">背景缩放 <span className="float-right text-slate-400">{currentAppearance.backgroundScale}%</span><input aria-label="背景缩放比例" type="range" min="100" max="200" step="5" value={currentAppearance.backgroundScale} onChange={event => updateActiveAppearance({ backgroundScale: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] font-medium text-slate-600">水平位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionX}%</span><input aria-label="背景水平位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionX} onChange={event => updateActiveAppearance({ backgroundPositionX: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label><label className="block text-[10px] font-medium text-slate-600">垂直位置 <span className="float-right text-slate-400">{currentAppearance.backgroundPositionY}%</span><input aria-label="背景垂直位置" type="range" min="0" max="100" step="5" value={currentAppearance.backgroundPositionY} onChange={event => updateActiveAppearance({ backgroundPositionY: Number(event.target.value) })} className="mt-1 w-full accent-sky-600" /></label></div>
           </div>}
         </div>
@@ -652,6 +669,8 @@ export default function Home() {
               backgroundBlur={currentAppearance.backgroundBlur}
               backgroundBrightness={currentAppearance.backgroundBrightness}
               backgroundContrast={currentAppearance.backgroundContrast}
+              backgroundSaturation={currentAppearance.backgroundSaturation}
+              backgroundTemperature={currentAppearance.backgroundTemperature}
               backgroundOpacity={currentAppearance.backgroundOpacity}
               backgroundScale={currentAppearance.backgroundScale}
               backgroundPositionX={currentAppearance.backgroundPositionX}

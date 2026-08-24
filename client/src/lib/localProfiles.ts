@@ -9,9 +9,12 @@ export type AIAppearance = {
   backgroundImage?: string;
   /** 背景图片的模糊程度（px），用于提升文字可读性。 */
   backgroundBlur?: number;
-  /** 背景图片亮度和对比度（百分比）。 */
+  /** 背景图片的亮度、对比度和饱和度（百分比）。 */
   backgroundBrightness?: number;
   backgroundContrast?: number;
+  backgroundSaturation?: number;
+  /** 背景色温（-100 为冷调，100 为暖调）。 */
+  backgroundTemperature?: number;
   /** 背景上的浅色保护层透明度（0-1），数值越大文字越清晰。 */
   backgroundOpacity?: number;
   /** 背景图片的缩放比例（百分比）。 */
@@ -37,7 +40,7 @@ export type CustomPromptShortcut = {
 };
 
 export const DEFAULT_AI_APPEARANCE: AIAppearance = {
-  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundBrightness: 100, backgroundContrast: 100, backgroundOpacity: 0.72, backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50,
+  accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain", backgroundBlur: 0, backgroundBrightness: 100, backgroundContrast: 100, backgroundSaturation: 100, backgroundTemperature: 0, backgroundOpacity: 0.72, backgroundScale: 100, backgroundPositionX: 50, backgroundPositionY: 50,
 };
 
 /** 内置背景排版方案；应用后仍可通过裁切框和滑块微调。 */
@@ -48,6 +51,21 @@ export const BACKGROUND_LAYOUT_PRESETS = [
   { id: "right", name: "右侧", note: "右侧主体", layout: { backgroundScale: 150, backgroundPositionX: 100, backgroundPositionY: 50 } },
   { id: "immersive", name: "沉浸", note: "放大居中", layout: { backgroundScale: 185, backgroundPositionX: 50, backgroundPositionY: 50 } },
 ] as const;
+
+/** 内置背景滤镜方案；应用后仍可通过滑块进行细微调整。 */
+export const BACKGROUND_FILTER_PRESETS = [
+  { id: "natural", name: "原片", note: "自然真实", filter: { backgroundBlur: 0, backgroundBrightness: 100, backgroundContrast: 100, backgroundSaturation: 100, backgroundTemperature: 0 } },
+  { id: "vintage", name: "复古", note: "暖调柔和", filter: { backgroundBlur: 1, backgroundBrightness: 105, backgroundContrast: 85, backgroundSaturation: 75, backgroundTemperature: 45 } },
+  { id: "mono", name: "黑白", note: "高对比", filter: { backgroundBlur: 0, backgroundBrightness: 105, backgroundContrast: 125, backgroundSaturation: 0, backgroundTemperature: 0 } },
+  { id: "cinematic", name: "电影感", note: "冷调质感", filter: { backgroundBlur: 0, backgroundBrightness: 90, backgroundContrast: 125, backgroundSaturation: 78, backgroundTemperature: -35 } },
+] as const;
+
+/** 用半透明冷暖色层模拟色温，保留照片细节与对比关系。 */
+export function backgroundTemperatureOverlay(temperature = 0) {
+  const strength = Math.min(0.42, Math.abs(temperature) / 240);
+  if (strength === 0) return "rgb(0 0 0 / 0)";
+  return temperature > 0 ? `rgb(255 154 82 / ${strength})` : `rgb(71 156 255 / ${strength})`;
+}
 
 export const BUILTIN_AI_THEMES = [
   { id: "clear-sky", name: "清透蓝", note: "轻盈、清爽", appearance: { accent: "sky", fontScale: "medium", bubbleRadius: "rounded", chatTexture: "plain" } },
@@ -133,6 +151,8 @@ function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
   const blur = Number(value?.backgroundBlur);
   const brightness = Number(value?.backgroundBrightness);
   const contrast = Number(value?.backgroundContrast);
+  const saturation = Number(value?.backgroundSaturation);
+  const temperature = Number(value?.backgroundTemperature);
   const opacity = Number(value?.backgroundOpacity);
   const scale = Number(value?.backgroundScale);
   const positionX = Number(value?.backgroundPositionX);
@@ -142,6 +162,8 @@ function normalizedAppearance(value?: Partial<AIAppearance>): AIAppearance {
     backgroundBlur: Number.isFinite(blur) ? Math.min(16, Math.max(0, blur)) : 0,
     backgroundBrightness: Number.isFinite(brightness) ? Math.min(140, Math.max(60, brightness)) : 100,
     backgroundContrast: Number.isFinite(contrast) ? Math.min(160, Math.max(60, contrast)) : 100,
+    backgroundSaturation: Number.isFinite(saturation) ? Math.min(200, Math.max(0, saturation)) : 100,
+    backgroundTemperature: Number.isFinite(temperature) ? Math.min(100, Math.max(-100, temperature)) : 0,
     backgroundOpacity: Number.isFinite(opacity) ? Math.min(0.92, Math.max(0.18, opacity)) : 0.72,
     backgroundScale: Number.isFinite(scale) ? Math.min(200, Math.max(100, scale)) : 100,
     backgroundPositionX: Number.isFinite(positionX) ? Math.min(100, Math.max(0, positionX)) : 50,
