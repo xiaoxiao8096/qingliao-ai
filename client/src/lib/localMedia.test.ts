@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMediaRequestPayload, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, videoTaskProgress } from "./localMedia";
+import { buildMediaRequestPayload, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, mediaNetworkFailureMessage, videoTaskProgress } from "./localMedia";
 
 describe("local media endpoint helpers", () => {
   it("derives OpenAI-compatible media paths from a text API base URL", () => {
@@ -16,6 +16,13 @@ describe("local media endpoint helpers", () => {
     expect(buildMediaRequestPayload(profile, "music", "lofi")).toEqual({ text: "lofi", engine: "music" });
     expect(defaultMediaRequestFormat("video")).toBe("form");
     expect(defaultMediaRequestFormat("music")).toBe("json");
+  });
+
+  it("builds GMI Cloud Music 3.0's nested payload and explains its browser CORS boundary", () => {
+    const profile = { baseUrl: "https://api.example.com/v1", apiKey: "test", model: "fallback", media: { music: { endpoint: "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey/requests", model: "minimax-music-3.0", providerTemplateId: "music-gmi-minimax-3", requestTemplate: '{"model":"{{model}}","payload":{"lyrics":"{{prompt}}","format":"mp3"}}' } } } as any;
+    expect(buildMediaRequestPayload(profile, "music", "[Verse] 夜色落下")).toEqual({ model: "minimax-music-3.0", payload: { lyrics: "[Verse] 夜色落下", format: "mp3" } });
+    expect(mediaNetworkFailureMessage(profile, "music")).toContain("纯静态轻聊无法直连");
+    expect(mediaNetworkFailureMessage({ ...profile, media: { music: { ...profile.media.music, endpoint: "https://music-proxy.example.com/gmi" } } }, "music")).toContain("HTTPS、网络以及上游 CORS");
   });
 
   it("maps each creation capability to a clear asset target", () => {

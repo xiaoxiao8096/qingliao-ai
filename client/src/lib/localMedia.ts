@@ -9,6 +9,7 @@ type MediaConfig = NonNullable<NonNullable<LocalAIProfile["media"]>[EndpointCapa
 const JSON_MEDIA = "application/json";
 const DEFAULT_VIDEO_POLL_LIMIT = 90;
 const DEFAULT_VIDEO_POLL_DELAY = 2_000;
+const GMI_CLOUD_MUSIC_ENDPOINT = "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey/requests";
 
 export type VideoTaskUpdate = {
   stage: "submitting" | "queued" | "processing" | "downloading" | "completed" | "cancelled";
@@ -57,6 +58,14 @@ function fileNameFor(capability: MediaCapability, mimeType: string) {
 
 function configFor(profile: LocalAIProfile, capability: EndpointCapability): MediaConfig {
   return profile.media?.[capability] ?? {};
+}
+
+export function mediaNetworkFailureMessage(profile: LocalAIProfile, capability: EndpointCapability, endpoint = mediaEndpointFor(profile, capability)) {
+  const config = configFor(profile, capability);
+  if (capability === "music" && config.providerTemplateId === "music-gmi-minimax-3" && endpoint.replace(/\/$/, "") === GMI_CLOUD_MUSIC_ENDPOINT) {
+    return "GMI Cloud Music 3.0 官方 console 端点未开放可携带 Authorization 的浏览器跨域调用；纯静态轻聊无法直连。请改填你自己部署且允许 CORS 的 HTTPS 代理端点，勿使用公共 CORS 代理或在页面暴露 API Key。";
+  }
+  return "浏览器无法访问该多模态端点。请检查 HTTPS、网络以及上游 CORS 配置。";
 }
 
 function interpolateTemplate(value: unknown, values: Record<string, string>): unknown {
@@ -149,7 +158,7 @@ function statusOf(payload: unknown) {
 }
 
 function idOf(payload: unknown) {
-  return firstString(payload, ["id", "data.id", "job_id", "data.job_id", "task_id", "data.task_id"]);
+  return firstString(payload, ["id", "data.id", "job_id", "data.job_id", "task_id", "data.task_id", "request_id", "data.request_id"]);
 }
 
 function isDone(status: string) { return ["completed", "succeeded", "success", "done"].includes(status); }
@@ -186,10 +195,12 @@ async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointC
   const contentEndpoint = config.contentEndpoint?.trim() || `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(id)}/content`;
   let status = statusOf(payload);
   updateVideo(options, { stage: "queued", progress: videoTaskProgress(payload, status, 0), taskId: id, message: status ? `任务${status}` : "任务已创建，等待服务商处理" });
-  for (let attempt = 0; attempt < DEFAULT_VIDEO_POLL_LIMIT && !isDone(status); attempt += 1) {
+  for (let attempt = 0; attempt < DEFAULT_VIDEO_POLL_LIMIT; attempt += 1) {
+    const needsInitialStatusFetch = attempt === 0 && Boolean(config.pollEndpoint?.trim());
+    if (isDone(status) && !needsInitialStatusFetch) break;
     if (options?.signal?.aborted) throw abortError();
     if (isFailed(status)) throw new Error(`生成任务失败：${messageFromPayload(payload)}`);
-    await sleep(DEFAULT_VIDEO_POLL_DELAY);
+    if (!needsInitialStatusFetch) await sleep(DEFAULT_VIDEO_POLL_DELAY);
     if (options?.signal?.aborted) throw abortError();
     let response: Response;
     try { response = await fetch(renderEndpoint(pollEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` }, signal: options?.signal }); } catch (error) { if (options?.signal?.aborted) throw abortError(); throw new Error("浏览器无法查询生成进度。请检查网络、HTTPS 和上游 CORS 配置。"); }
@@ -236,7 +247,7 @@ export async function generateAndStoreMedia(profile: LocalAIProfile, capability:
     response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${profile.apiKey.trim()}` }, body: request.body, signal: options?.signal });
   } catch {
     if (options?.signal?.aborted) throw abortError();
-    throw new Error("浏览器无法访问该多模态端点。请检查 HTTPS、网络以及上游 CORS 配置。");
+    throw new Error(mediaNetworkFailureMessage(profile, capability, endpoint));
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
