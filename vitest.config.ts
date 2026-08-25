@@ -8,6 +8,6 @@ export default defineConfig({
   resolve: { alias: { "@": path.resolve(root, "client", "src") } },
   test: {
     environment: "node",
-    include: ["client/**/*.test.ts", "client/**/*.spec.ts"],
+    include: ["client/**/*.test.ts", "client/**/*.spec.ts", "server/**/*.test.ts"],
   },
 });

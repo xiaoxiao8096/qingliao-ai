@@ -1,6 +1,7 @@
 import type { LocalAIProfile } from "./localProfiles";
 import { saveLocalAsset, type AssetKind, type LocalAsset } from "./localAssets";
 import { modelEndpoint } from "./localChat";
+import { mediaFetch, usesMediaProxy } from "./mediaProxy";
 
 export type MediaCapability = "document" | "image" | "speech" | "music" | "video";
 export type EndpointCapability = Exclude<MediaCapability, "document">;
@@ -66,6 +67,9 @@ function configFor(profile: LocalAIProfile, capability: EndpointCapability): Med
 }
 
 export function mediaNetworkFailureMessage(profile: LocalAIProfile, capability: EndpointCapability, endpoint = mediaEndpointFor(profile, capability)) {
+  if (usesMediaProxy()) {
+    return "Vercel 多模态代理未能访问该端点。请检查网络，并确认端点的域名已加入 QINGLIAO_ALLOWED_UPSTREAM_ORIGINS。";
+  }
   const config = configFor(profile, capability);
   if (capability === "music" && config.providerTemplateId === "music-gmi-minimax-3" && endpoint.replace(/\/$/, "") === GMI_CLOUD_MUSIC_ENDPOINT) {
     return "GMI Cloud Music 3.0 官方 console 端点未开放可携带 Authorization 的浏览器跨域调用；纯静态轻聊无法直连。请改填你自己部署且允许 CORS 的 HTTPS 代理端点，勿使用公共 CORS 代理或在页面暴露 API Key。";
@@ -130,8 +134,8 @@ async function blobFromPayload(payload: unknown, config: MediaConfig, capability
   const value = resultValue(payload, config);
   if (!value) return null;
   if (/^(https?:)?\/\//i.test(value)) {
-    const assetResponse = await fetch(value);
-    if (!assetResponse.ok) throw new Error(`生成文件下载失败（${assetResponse.status}）。请确认服务允许跨域访问。`);
+    const assetResponse = await mediaFetch(value);
+    if (!assetResponse.ok) throw new Error(`生成文件下载失败（${assetResponse.status}）。请确认下载域名已加入 Vercel 代理白名单。`);
     return assetResponse.blob();
   }
   const defaultMime = capability === "image" ? "image/png" : capability === "speech" ? "audio/mpeg" : capability === "music" ? "audio/mpeg" : "video/mp4";
@@ -208,7 +212,7 @@ async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointC
     if (!needsInitialStatusFetch) await sleep(DEFAULT_VIDEO_POLL_DELAY);
     if (options?.signal?.aborted) throw abortError();
     let response: Response;
-    try { response = await fetch(renderEndpoint(pollEndpoint, id), { headers: { authorization: `Bearer ${mediaApiKeyFor(profile, capability)}` }, signal: options?.signal }); } catch (error) { if (options?.signal?.aborted) throw abortError(); throw new Error("浏览器无法查询生成进度。请检查网络、HTTPS 和上游 CORS 配置。"); }
+    try { response = await mediaFetch(renderEndpoint(pollEndpoint, id), { headers: { authorization: `Bearer ${mediaApiKeyFor(profile, capability)}` }, signal: options?.signal }); } catch (error) { if (options?.signal?.aborted) throw abortError(); throw new Error("无法查询生成进度。请检查网络、HTTPS 和 Vercel 上游域名白名单。"); }
     if (!response.ok) throw new Error(`查询生成进度失败（${response.status}）。`);
     payload = await response.json().catch(() => null);
     const result = await blobFromPayload(payload, config, capability);
@@ -220,7 +224,7 @@ async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointC
   if (options?.signal?.aborted) throw abortError();
   updateVideo(options, { stage: "downloading", progress: 96, taskId: id, message: "生成完成，正在下载成品" });
   let contentResponse: Response;
-  try { contentResponse = await fetch(renderEndpoint(contentEndpoint, id), { headers: { authorization: `Bearer ${mediaApiKeyFor(profile, capability)}` }, signal: options?.signal }); } catch { if (options?.signal?.aborted) throw abortError(); throw new Error("生成已完成，但浏览器无法下载结果文件。请检查内容端点和 CORS 配置。"); }
+  try { contentResponse = await mediaFetch(renderEndpoint(contentEndpoint, id), { headers: { authorization: `Bearer ${mediaApiKeyFor(profile, capability)}` }, signal: options?.signal }); } catch { if (options?.signal?.aborted) throw abortError(); throw new Error("生成已完成，但无法下载结果文件。请检查内容端点和 Vercel 上游域名白名单。"); }
   if (!contentResponse.ok) throw new Error(`下载生成结果失败（${contentResponse.status}）。`);
   return contentResponse.blob();
 }
@@ -230,7 +234,7 @@ export async function cancelRemoteVideoTask(profile: LocalAIProfile, taskId: str
   if (!endpoint) return false;
   let response: Response;
   try {
-    response = await fetch(renderEndpoint(endpoint, taskId), { method: "POST", headers: { authorization: `Bearer ${mediaApiKeyFor(profile, "video")}` } });
+    response = await mediaFetch(renderEndpoint(endpoint, taskId), { method: "POST", headers: { authorization: `Bearer ${mediaApiKeyFor(profile, "video")}` } });
   } catch {
     throw new Error("浏览器无法通知服务商取消任务。已停止本机等待，请稍后到服务商控制台确认。\n");
   }
@@ -250,7 +254,7 @@ export async function generateAndStoreMedia(profile: LocalAIProfile, capability:
   if (capability === "video") updateVideo(options, { stage: "submitting", progress: 8, message: "正在创建视频任务" });
   let response: Response;
   try {
-    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${apiKey}` }, body: request.body, signal: options?.signal });
+    response = await mediaFetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${apiKey}` }, body: request.body, signal: options?.signal });
   } catch {
     if (options?.signal?.aborted) throw abortError();
     throw new Error(mediaNetworkFailureMessage(profile, capability, endpoint));
@@ -298,7 +302,7 @@ export async function testMediaCapability(profile: LocalAIProfile, capability: E
   const request = formatRequest(payload, format);
   let response: Response;
   try {
-    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${apiKey}` }, body: request.body });
+    response = await mediaFetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${apiKey}` }, body: request.body });
   } catch {
     return { ok: false, message: mediaNetworkFailureMessage(profile, capability, endpoint), endpoint };
   }

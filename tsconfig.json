@@ -1,5 +1,5 @@
 {
-  "include": ["client/src/**/*"],
+  "include": ["client/src/**/*", "api/**/*", "server/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"],
   "compilerOptions": {
     "noEmit": true,
@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "baseUrl": ".",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "paths": {
       "@/*": ["./client/src/*"]
     }

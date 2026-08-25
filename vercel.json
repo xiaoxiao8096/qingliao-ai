@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "regions": ["hkg1"],
+  "functions": {
+    "api/media-proxy.ts": {
+      "maxDuration": 300,
+      "supportsCancellation": true
+    }
+  }
+}
