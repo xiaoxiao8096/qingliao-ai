@@ -1,4 +1,4 @@
-import { miniPreviewRadius, miniPreviewTexture } from "@/lib/themePreview";
+import { miniPreviewRadius, miniPreviewTexture, randomAppearanceStyle } from "@/lib/themePreview";
 import { describe, expect, it } from "vitest";
 
 describe("left theme appearance preview", () => {
@@ -14,5 +14,11 @@ describe("left theme appearance preview", () => {
     expect(miniPreviewTexture({ ...base, chatTexture: "dots" }).backgroundImage).toContain("radial-gradient");
     expect(miniPreviewTexture({ ...base, chatTexture: "grid" }).backgroundImage).toContain("linear-gradient");
     expect(miniPreviewTexture({ ...base, chatTexture: "paper" }).backgroundImage).toContain("repeating-linear-gradient");
+  });
+
+  it("creates a bounded random visual combination from supported options", () => {
+    const values = [0, 0.99, 0.5];
+    const style = randomAppearanceStyle(() => values.shift() ?? 0);
+    expect(style).toEqual({ bubbleRadius: "soft", chatTexture: "paper", fontScale: "medium" });
   });
 });

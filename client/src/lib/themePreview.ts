@@ -20,3 +20,12 @@ export function miniPreviewTexture(appearance: AIAppearance): CSSProperties {
   if (appearance.chatTexture === "paper") return { backgroundColor: "#fffefa", backgroundImage: `linear-gradient(120deg, ${accent}20, transparent 45%), repeating-linear-gradient(0deg, transparent, transparent 22px, rgba(100,116,139,.1) 23px)` };
   return { backgroundColor: "#f7fafc" };
 }
+
+const randomBubbleRadii: AIAppearance["bubbleRadius"][] = ["soft", "rounded", "pill"];
+const randomTextures: AIAppearance["chatTexture"][] = ["plain", "dots", "grid", "paper"];
+const randomFontScales: AIAppearance["fontScale"][] = ["small", "medium", "large"];
+
+export function randomAppearanceStyle(random = Math.random): Pick<AIAppearance, "bubbleRadius" | "chatTexture" | "fontScale"> {
+  const pick = <T,>(options: T[]) => options[Math.min(options.length - 1, Math.floor(random() * options.length))];
+  return { bubbleRadius: pick(randomBubbleRadii), chatTexture: pick(randomTextures), fontScale: pick(randomFontScales) };
+}
