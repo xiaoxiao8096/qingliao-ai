@@ -38,6 +38,11 @@ export function mediaModelFor(profile: LocalAIProfile, capability: EndpointCapab
   return profile.media?.[capability]?.model?.trim() || profile.model.trim();
 }
 
+/** 该能力若单独填了 API Key 就用它，否则回落到顶层聊天用的 API Key。 */
+export function mediaApiKeyFor(profile: LocalAIProfile, capability: EndpointCapability) {
+  return profile.media?.[capability]?.apiKey?.trim() || profile.apiKey.trim();
+}
+
 export function defaultMediaRequestFormat(capability: EndpointCapability) {
   return capability === "video" ? "form" : "json";
 }
@@ -203,7 +208,7 @@ async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointC
     if (!needsInitialStatusFetch) await sleep(DEFAULT_VIDEO_POLL_DELAY);
     if (options?.signal?.aborted) throw abortError();
     let response: Response;
-    try { response = await fetch(renderEndpoint(pollEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` }, signal: options?.signal }); } catch (error) { if (options?.signal?.aborted) throw abortError(); throw new Error("浏览器无法查询生成进度。请检查网络、HTTPS 和上游 CORS 配置。"); }
+    try { response = await fetch(renderEndpoint(pollEndpoint, id), { headers: { authorization: `Bearer ${mediaApiKeyFor(profile, capability)}` }, signal: options?.signal }); } catch (error) { if (options?.signal?.aborted) throw abortError(); throw new Error("浏览器无法查询生成进度。请检查网络、HTTPS 和上游 CORS 配置。"); }
     if (!response.ok) throw new Error(`查询生成进度失败（${response.status}）。`);
     payload = await response.json().catch(() => null);
     const result = await blobFromPayload(payload, config, capability);
@@ -215,7 +220,7 @@ async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointC
   if (options?.signal?.aborted) throw abortError();
   updateVideo(options, { stage: "downloading", progress: 96, taskId: id, message: "生成完成，正在下载成品" });
   let contentResponse: Response;
-  try { contentResponse = await fetch(renderEndpoint(contentEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` }, signal: options?.signal }); } catch { if (options?.signal?.aborted) throw abortError(); throw new Error("生成已完成，但浏览器无法下载结果文件。请检查内容端点和 CORS 配置。"); }
+  try { contentResponse = await fetch(renderEndpoint(contentEndpoint, id), { headers: { authorization: `Bearer ${mediaApiKeyFor(profile, capability)}` }, signal: options?.signal }); } catch { if (options?.signal?.aborted) throw abortError(); throw new Error("生成已完成，但浏览器无法下载结果文件。请检查内容端点和 CORS 配置。"); }
   if (!contentResponse.ok) throw new Error(`下载生成结果失败（${contentResponse.status}）。`);
   return contentResponse.blob();
 }
@@ -225,7 +230,7 @@ export async function cancelRemoteVideoTask(profile: LocalAIProfile, taskId: str
   if (!endpoint) return false;
   let response: Response;
   try {
-    response = await fetch(renderEndpoint(endpoint, taskId), { method: "POST", headers: { authorization: `Bearer ${profile.apiKey.trim()}` } });
+    response = await fetch(renderEndpoint(endpoint, taskId), { method: "POST", headers: { authorization: `Bearer ${mediaApiKeyFor(profile, "video")}` } });
   } catch {
     throw new Error("浏览器无法通知服务商取消任务。已停止本机等待，请稍后到服务商控制台确认。\n");
   }
@@ -236,7 +241,8 @@ export async function cancelRemoteVideoTask(profile: LocalAIProfile, taskId: str
 export async function generateAndStoreMedia(profile: LocalAIProfile, capability: EndpointCapability, prompt: string, options?: MediaGenerationOptions): Promise<LocalAsset> {
   const endpoint = mediaEndpointFor(profile, capability);
   const model = mediaModelFor(profile, capability);
-  if (!endpoint || !profile.apiKey.trim() || !model) throw new Error("请先为当前 AI 填写 API Key、模型和对应的多模态端点。");
+  const apiKey = mediaApiKeyFor(profile, capability);
+  if (!endpoint || !apiKey || !model) throw new Error("请先为当前 AI 填写 API Key、模型和对应的多模态端点。");
   const config = configFor(profile, capability);
   const payload = buildMediaRequestPayload(profile, capability, prompt);
   const format = config.requestFormat ?? defaultMediaRequestFormat(capability);
@@ -244,7 +250,7 @@ export async function generateAndStoreMedia(profile: LocalAIProfile, capability:
   if (capability === "video") updateVideo(options, { stage: "submitting", progress: 8, message: "正在创建视频任务" });
   let response: Response;
   try {
-    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${profile.apiKey.trim()}` }, body: request.body, signal: options?.signal });
+    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${apiKey}` }, body: request.body, signal: options?.signal });
   } catch {
     if (options?.signal?.aborted) throw abortError();
     throw new Error(mediaNetworkFailureMessage(profile, capability, endpoint));
@@ -282,7 +288,8 @@ export type MediaTestResult = { ok: boolean; message: string; endpoint?: string 
 export async function testMediaCapability(profile: LocalAIProfile, capability: EndpointCapability, prompt: string): Promise<MediaTestResult> {
   const endpoint = mediaEndpointFor(profile, capability);
   const model = mediaModelFor(profile, capability);
-  if (!endpoint || !profile.apiKey.trim() || !model) {
+  const apiKey = mediaApiKeyFor(profile, capability);
+  if (!endpoint || !apiKey || !model) {
     return { ok: false, message: "请先填写 API Key、模型和对应的多模态端点。", endpoint };
   }
   const config = configFor(profile, capability);
@@ -291,7 +298,7 @@ export async function testMediaCapability(profile: LocalAIProfile, capability: E
   const request = formatRequest(payload, format);
   let response: Response;
   try {
-    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${profile.apiKey.trim()}` }, body: request.body });
+    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${apiKey}` }, body: request.body });
   } catch {
     return { ok: false, message: mediaNetworkFailureMessage(profile, capability, endpoint), endpoint };
   }

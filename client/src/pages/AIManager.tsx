@@ -22,7 +22,7 @@ import {
   type LocalAIProfile,
 } from "@/lib/localProfiles";
 import { applyMediaProviderTemplate, mediaProviderTemplatesFor } from "@/lib/mediaProviderTemplates";
-import { testMediaCapability, type EndpointCapability } from "@/lib/localMedia";
+import { mediaApiKeyFor, testMediaCapability, type EndpointCapability } from "@/lib/localMedia";
 import {
   ArrowLeft,
   BookmarkPlus,
@@ -137,6 +137,7 @@ export default function AIManager() {
   const [modelTestFeedback, setModelTestFeedback] = useState<{ kind: "loading" | "error" | "success"; text: string } | null>(null);
   const [testingMedia, setTestingMedia] = useState<Record<EndpointCapability, boolean>>({ image: false, speech: false, music: false, video: false });
   const [mediaTestState, setMediaTestState] = useState<Record<EndpointCapability, { kind: "loading" | "error" | "success"; text: string } | undefined>>({ image: undefined, speech: undefined, music: undefined, video: undefined });
+  const [showMediaKey, setShowMediaKey] = useState<Record<EndpointCapability, boolean>>({ image: false, speech: false, music: false, video: false });
   const [presets, setPresets] = useState<AppearancePreset[]>(() => getAppearancePresets());
   const [presetName, setPresetName] = useState("");
   const avatarInput = useRef<HTMLInputElement>(null);
@@ -351,8 +352,8 @@ export default function AIManager() {
   }
 
   async function testMedia(capability: EndpointCapability) {
-    if (!form.apiKey.trim()) {
-      toast.error("请先在上方填写 API Key。", { description: "生成能力会复用这同一把密钥。" });
+    if (!mediaApiKeyFor(form, capability)) {
+      toast.error("这个能力还没有可用的 API Key。", { description: "在下面的「本能力专用 API Key」里填这家的钥匙，或先填好上方聊天用的 API Key。" });
       return;
     }
     const testPrompts: Record<EndpointCapability, string> = {
@@ -439,8 +440,17 @@ export default function AIManager() {
 
               <details className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5">
                 <summary className="cursor-pointer list-none text-sm font-semibold text-slate-700">多模态创作端点（可选）<span className="ml-2 text-xs font-normal text-slate-400">图片、语音、音乐、视频</span></summary>
-                <p className="mt-2 text-xs leading-5 text-slate-500">这里的密钥不用单独填——它直接复用上方那一把「API Key」，填一次就够。填好端点地址（必须 https 开头、且服务商允许浏览器直接访问）后，点每个能力旁边的「测试生成」就能立刻知道配得对不对，不用靠猜。所有配置只保存在当前浏览器。</p>
-                <div className="mt-3 space-y-3">{(["image", "speech", "music", "video"] as const).map(capability => <div key={capability} className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold text-slate-600">{{ image: "图片生成", speech: "语音合成", music: "音乐生成", video: "视频生成" }[capability]}</p><span className="text-[10px] text-slate-400">模板只填请求形态，不会覆盖端点或模型</span></div><div className="mt-2 flex flex-wrap gap-1.5">{mediaProviderTemplatesFor(capability).map(template => <button key={template.id} type="button" onClick={() => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: applyMediaProviderTemplate(previous.media?.[capability], template) } }))} title={template.browserNotice ?? template.note} className={`rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${form.media?.[capability]?.providerTemplateId === template.id ? "border-sky-300 bg-sky-50 text-sky-700" : "border-slate-200 bg-white text-slate-500 hover:border-sky-200 hover:bg-sky-50"}`}>{template.name}</button>)}</div><div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="mt-2 text-xs leading-5 text-slate-500">图片和聊天不是同一家？没问题。每个能力都可以单独填自己那家的 API Key：<span className="font-semibold text-slate-600">填了就用它，留空才回落到上方聊天那把钥匙</span>。端点地址必须 https 开头、且服务商允许浏览器直接访问。填完点「测试生成」立刻知道配得对不对，不用靠猜。所有配置只保存在当前浏览器。</p>
+                <div className="mt-3 space-y-3">{(["image", "speech", "music", "video"] as const).map(capability => <div key={capability} className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold text-slate-600">{{ image: "图片生成", speech: "语音合成", music: "音乐生成", video: "视频生成" }[capability]}</p><span className="text-[10px] text-slate-400">模板只填请求形态，不会覆盖端点或模型</span></div><div className="mt-2 flex flex-wrap gap-1.5">{mediaProviderTemplatesFor(capability).map(template => <button key={template.id} type="button" onClick={() => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: applyMediaProviderTemplate(previous.media?.[capability], template) } }))} title={template.browserNotice ?? template.note} className={`rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${form.media?.[capability]?.providerTemplateId === template.id ? "border-sky-300 bg-sky-50 text-sky-700" : "border-slate-200 bg-white text-slate-500 hover:border-sky-200 hover:bg-sky-50"}`}>{template.name}</button>)}</div><div className="mt-2">
+                    <label htmlFor={`media-key-${capability}`} className="block text-[11px] font-semibold text-slate-600">本能力专用 API Key（可选）</label>
+                    <div className="relative mt-1">
+                      <KeyRound className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+                      <Input id={`media-key-${capability}`} type={showMediaKey[capability] ? "text" : "password"} value={form.media?.[capability]?.apiKey ?? ""} onChange={event => { setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], apiKey: event.target.value } } })); setMediaTestState(previous => ({ ...previous, [capability]: undefined })); }} placeholder={form.apiKey.trim() ? "留空则用上方聊天的 API Key" : "填这家服务商的 API Key"} autoComplete="off" className="h-9 rounded-lg border-slate-200 bg-slate-50 pl-8 pr-9 text-xs" />
+                      <button type="button" onClick={() => setShowMediaKey(previous => ({ ...previous, [capability]: !previous[capability] }))} className="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-slate-400 hover:bg-slate-100" aria-label={showMediaKey[capability] ? "隐藏该能力的 API Key" : "显示该能力的 API Key"}>{showMediaKey[capability] ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}</button>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-400">{form.media?.[capability]?.apiKey?.trim() ? "已填专用钥匙，这个能力就走它。" : form.apiKey.trim() ? "留空中：这个能力正在复用上方聊天的 API Key。" : "上方聊天的 API Key 也还没填，需要至少填一处才能生成。"}</p>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Button type="button" size="sm" variant="outline" disabled={testingMedia[capability]} onClick={() => testMedia(capability)} className="h-8 rounded-lg border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 disabled:opacity-70">{testingMedia[capability] ? <><Loader2 className="mr-1.5 size-3.5 animate-spin" />正在测试</> : <><FlaskConical className="mr-1.5 size-3.5" />测试生成</>}</Button>
                     <span className="text-[10px] leading-4 text-slate-400">填好端点后点此验证是否可用</span>
                   </div>

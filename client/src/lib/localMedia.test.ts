@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMediaRequestPayload, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, mediaNetworkFailureMessage, videoTaskProgress } from "./localMedia";
+import { buildMediaRequestPayload, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, mediaApiKeyFor, mediaNetworkFailureMessage, videoTaskProgress } from "./localMedia";
 
 describe("local media endpoint helpers", () => {
   it("derives OpenAI-compatible media paths from a text API base URL", () => {
@@ -23,6 +23,15 @@ describe("local media endpoint helpers", () => {
     expect(buildMediaRequestPayload(profile, "music", "[Verse] 夜色落下")).toEqual({ model: "minimax-music-3.0", payload: { lyrics: "[Verse] 夜色落下", format: "mp3" } });
     expect(mediaNetworkFailureMessage(profile, "music")).toContain("纯静态轻聊无法直连");
     expect(mediaNetworkFailureMessage({ ...profile, media: { music: { ...profile.media.music, endpoint: "https://music-proxy.example.com/gmi" } } }, "music")).toContain("HTTPS、网络以及上游 CORS");
+  });
+
+  it("lets each capability carry its own API key and falls back to the chat key", () => {
+    const profile = { baseUrl: "https://api.b.com/v1", apiKey: "key-chat-b", model: "chat", media: { image: { apiKey: "key-image-a" }, speech: { apiKey: "   " } } } as any;
+    expect(mediaApiKeyFor(profile, "image")).toBe("key-image-a");
+    expect(mediaApiKeyFor(profile, "speech")).toBe("key-chat-b");
+    expect(mediaApiKeyFor(profile, "video")).toBe("key-chat-b");
+    expect(mediaApiKeyFor({ ...profile, apiKey: "" }, "image")).toBe("key-image-a");
+    expect(mediaApiKeyFor({ ...profile, apiKey: "" }, "music")).toBe("");
   });
 
   it("maps each creation capability to a clear asset target", () => {

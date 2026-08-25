@@ -170,6 +170,8 @@ export type LocalAIProfile = LocalModelSettings & {
     endpoint?: string;
     model?: string;
     voice?: string;
+    /** 该能力专用的 API Key；留空则复用顶层聊天用的 API Key。仅保存在当前浏览器。 */
+    apiKey?: string;
     /** 自定义服务商的 JSON 请求体，可使用 {{model}}、{{prompt}}、{{voice}} 占位符。 */
     requestTemplate?: string;
     /** 请求体的发送方式；视频的默认方式为 multipart/form-data，其余为 JSON。 */
