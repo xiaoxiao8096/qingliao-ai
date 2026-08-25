@@ -2,10 +2,13 @@ import { AIChatBox, type Message as ChatMessage } from "@/components/AIChatBox";
 import { Button } from "@/components/ui/button";
 import {
   appendAssistantDelta,
+  appendAssistantCandidateDelta,
   appendLocalMessages,
+  archiveLocalConversation,
   conversationsForAI,
   createConversation,
   createId,
+  dropEmptyAssistantCandidate,
   dropEmptyAssistantMessage,
   getConversations,
   initialTitle,
@@ -16,10 +19,12 @@ import {
   renameLocalConversation,
   saveConversations,
   searchLocalConversations,
+  setActiveCandidate,
   setLocalConversationGroup,
   toggleLocalConversationPin,
   setMessageFeedback,
   truncateAfter,
+  unarchiveLocalConversation,
   updateMessageContent,
   type LocalConversation,
 } from "@/lib/localChat";
@@ -29,6 +34,7 @@ import { getActiveAIId, getAIProfiles, getUserProfile, setActiveAIId, type Local
 import {
   Check,
   ChevronRight,
+  ChevronLeft,
   CircleHelp,
   Menu,
   MessageSquarePlus,
@@ -42,13 +48,15 @@ import {
   UserRound,
   Monitor,
   FolderPlus,
+  Archive,
+  ArchiveRestore,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-type StreamMessage = { id: string; role: "user" | "assistant"; content: string; attachments?: Attachment[]; feedback?: "up" | "down"; createdAt?: number };
+type StreamMessage = { id: string; role: "user" | "assistant"; content: string; attachments?: Attachment[]; feedback?: "up" | "down"; candidates?: string[]; activeCandidate?: number; createdAt?: number };
 
 type ContentPart =
   | { type: "text"; text: string }
@@ -112,15 +120,24 @@ export default function Home() {
   const [groupFilter, setGroupFilter] = useState("all");
   const [managingGroup, setManagingGroup] = useState<string | null>(null);
   const [groupManagerValue, setGroupManagerValue] = useState("");
+  const [archiveView, setArchiveView] = useState(false);
+  const [messageQuery, setMessageQuery] = useState("");
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [matchCursor, setMatchCursor] = useState(0);
   const { preference, setPreference } = useThemePreference();
 
   const userProfile = getUserProfile();
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => () => { abortRef.current?.abort(); }, []);
   const activeAI = profiles.find(profile => profile.id === activeAIId) ?? profiles[0];
-  const currentConversations = useMemo(
+  const baseConversations = useMemo(
     () => activeAI ? conversationsForAI(conversations, activeAI.id) : [],
     [activeAI, conversations],
+  );
+  const archivedCount = useMemo(() => baseConversations.filter(item => item.archived).length, [baseConversations]);
+  const currentConversations = useMemo(
+    () => baseConversations.filter(item => archiveView ? item.archived : !item.archived),
+    [baseConversations, archiveView],
   );
   const conversationGroups = useMemo(() => Array.from(new Set(currentConversations.map(item => item.group).filter((group): group is string => Boolean(group)))).sort(), [currentConversations]);
   const matchingConversations = useMemo(
@@ -128,7 +145,19 @@ export default function Home() {
     [conversationQuery, currentConversations, groupFilter],
   );
   const activeConversation = currentConversations.find(item => item.id === activeConversationId) ?? null;
-  const messages = useMemo<StreamMessage[]>(() => activeConversation?.messages.map(message => ({ id: message.id, role: message.role, content: message.content, attachments: message.attachments, feedback: message.feedback, createdAt: message.createdAt })) ?? [], [activeConversation]);
+  const messages = useMemo<StreamMessage[]>(() => activeConversation?.messages.map(message => ({ id: message.id, role: message.role, content: message.content, attachments: message.attachments, feedback: message.feedback, candidates: message.candidates, activeCandidate: message.activeCandidate, createdAt: message.createdAt })) ?? [], [activeConversation]);
+  const matchMessageIds = useMemo(() => {
+    const q = messageQuery.trim().toLowerCase();
+    if (!q || !activeConversation) return [];
+    return activeConversation.messages.filter(m => (m.content ?? "").toLowerCase().includes(q)).map(m => m.id);
+  }, [messageQuery, activeConversation]);
+  const activeMatchId = matchMessageIds.length > 0 ? matchMessageIds[Math.min(matchCursor, matchMessageIds.length - 1)] : null;
+
+  useEffect(() => {
+    if (!activeMatchId) return;
+    const el = document.querySelector(`[data-message-id="${activeMatchId}"]`);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeMatchId]);
   const isConfigured = Boolean(activeAI?.baseUrl && activeAI?.apiKey && activeAI?.model);
 
   useEffect(() => {
@@ -151,6 +180,10 @@ export default function Home() {
     setCurrentAIId(id);
     setActiveConversationId(null);
     setConversationQuery("");
+    setArchiveView(false);
+    setMessageSearchOpen(false);
+    setMessageQuery("");
+    setMatchCursor(0);
     setDrawerOpen(false);
   }
 
@@ -211,12 +244,13 @@ export default function Home() {
     toast.success("已清空该分类下的会话标签。");
   }
 
-  /** 通用流式回复：向模型发送 [history + 最后一条用户消息]，把增量写入 assistantId。 */
+  /** 通用流式回复：向模型发送 [history + 最后一条用户消息]，把增量写入 assistantId 的指定候选（candidateIndex 不传则写入正文）。 */
   async function streamReply(
     conversationId: string,
     history: { role: "user" | "assistant"; content: string | ContentPart[] }[],
     finalUser: { content: string; attachments: Attachment[] },
     assistantId: string,
+    candidateIndex?: number,
   ) {
     if (!activeAI) return;
     setIsStreaming(true);
@@ -226,8 +260,8 @@ export default function Home() {
       const response = await fetch(modelEndpoint(activeAI.baseUrl), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${activeAI.apiKey}` }, signal: controller.signal, body: JSON.stringify({ model: activeAI.model, stream: true, messages: [{ role: "system", content: buildSystemPrompt(activeAI, getUserProfile()) }, ...history, { role: "user", content: buildContent({ content: finalUser.content, attachments: finalUser.attachments }) }] }) });
       if (!response.ok || !response.body) { const payload = await response.json().catch(() => null) as { error?: { message?: string } | string } | null; const reason = typeof payload?.error === "string" ? payload.error : payload?.error?.message; throw new Error(reason ?? "模型服务没有响应，请检查当前 AI 的配置。"); }
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
-      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const chunks = buffer.split(/\r?\n\r?\n/); buffer = chunks.pop() ?? ""; for (const chunk of chunks) { const parsed = parseSseEventBlock(chunk); if (!parsed) continue; if (parsed.error) throw new Error(parsed.error); if (parsed.delta) updateStoredConversations(setConversations, previous => appendAssistantDelta(previous, conversationId, assistantId, parsed.delta)); } }
-    } catch (error) { if ((error as Error)?.name === "AbortError") { toast.message("已停止生成。"); } else { updateStoredConversations(setConversations, previous => dropEmptyAssistantMessage(previous, conversationId, assistantId)); toast.error(error instanceof Error ? error.message : "发送失败，请检查 API 设置或网络。"); } } finally { abortRef.current = null; setIsStreaming(false); }
+      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const chunks = buffer.split(/\r?\n\r?\n/); buffer = chunks.pop() ?? ""; for (const chunk of chunks) { const parsed = parseSseEventBlock(chunk); if (!parsed) continue; if (parsed.error) throw new Error(parsed.error); if (parsed.delta) updateStoredConversations(setConversations, previous => candidateIndex != null ? appendAssistantCandidateDelta(previous, conversationId, assistantId, candidateIndex, parsed.delta) : appendAssistantDelta(previous, conversationId, assistantId, parsed.delta)); } }
+    } catch (error) { if ((error as Error)?.name === "AbortError") { toast.message("已停止生成。"); } else { updateStoredConversations(setConversations, previous => candidateIndex != null ? dropEmptyAssistantCandidate(previous, conversationId, assistantId, candidateIndex) : dropEmptyAssistantMessage(previous, conversationId, assistantId)); toast.error(error instanceof Error ? error.message : "发送失败，请检查 API 设置或网络。"); } } finally { abortRef.current = null; setIsStreaming(false); }
   }
 
   async function sendMessage(payload: { text: string; attachments: Attachment[]; editMessageId?: string }) {
@@ -272,13 +306,14 @@ export default function Home() {
     if (userIdx < 0) return;
     const userMessage = msgs[userIdx];
     const before = msgs.slice(0, userIdx).map(m => ({ role: m.role, content: buildContent(m) }));
-    const assistantMessage = { id: createId(), role: "assistant" as const, content: "", createdAt: Date.now() };
-    updateStoredConversations(setConversations, previous => {
-      let next = truncateAfter(previous, activeConversation!.id, userMessage.id);
-      next = appendLocalMessages(next, activeConversation!.id, [assistantMessage]);
-      return next;
-    });
-    streamReply(activeConversation.id, before, { content: userMessage.content, attachments: userMessage.attachments ?? [] }, assistantMessage.id);
+    // 以当前回复为候选 0，追加一个新的空候选并写入其中（不破坏后续对话）。
+    const existing = msgs[idx].candidates ?? [msgs[idx].content];
+    const candidateIndex = existing.length;
+    updateStoredConversations(setConversations, previous => previous.map(c => c.id === activeConversation!.id ? {
+      ...c,
+      messages: c.messages.map(m => m.id === assistantMessageId ? { ...m, candidates: [...existing, ""], activeCandidate: candidateIndex } : m),
+    } : c));
+    streamReply(activeConversation.id, before, { content: userMessage.content, attachments: userMessage.attachments ?? [] }, assistantMessageId, candidateIndex);
   }
 
   function deleteMessage(messageId: string) {
@@ -291,6 +326,22 @@ export default function Home() {
     if (!activeConversation) return;
     const current = activeConversation.messages.find(m => m.id === messageId)?.feedback;
     updateStoredConversations(setConversations, previous => setMessageFeedback(previous, activeConversation!.id, messageId, current === value ? undefined : value));
+  }
+
+  function switchCandidate(messageId: string, index: number) {
+    if (!activeConversation) return;
+    updateStoredConversations(setConversations, previous => setActiveCandidate(previous, activeConversation!.id, messageId, index));
+  }
+
+  function archiveConversation(id: string) {
+    updateStoredConversations(setConversations, previous => archiveLocalConversation(previous, id));
+    if (activeConversationId === id) setActiveConversationId(currentConversations.find(item => item.id !== id)?.id ?? null);
+    toast.success("已归档。");
+  }
+
+  function unarchiveConversation(id: string) {
+    updateStoredConversations(setConversations, previous => unarchiveLocalConversation(previous, id));
+    toast.success("已恢复到活跃列表。");
   }
 
   function stopGeneration() {
@@ -347,6 +398,14 @@ export default function Home() {
       {currentConversations.length > 0 && <select value={groupFilter} onChange={event => setGroupFilter(event.target.value)} className="mb-3 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-600" aria-label="按分类筛选会话"><option value="all">全部分类</option><option value="ungrouped">未分类</option>{conversationGroups.map(group => <option key={group} value={group}>{group}</option>)}</select>}
       {conversationGroups.length > 0 && <div className="mb-3 space-y-1 px-1"><p className="text-[10px] font-bold tracking-[0.12em] text-slate-400">管理分类</p>{conversationGroups.map(group => managingGroup === group ? <form key={group} onSubmit={event => { event.preventDefault(); renameGroup(group); }} className="flex gap-1"><input autoFocus value={groupManagerValue} onChange={event => setGroupManagerValue(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs" /><button className="rounded-lg bg-sky-100 px-2 text-xs text-sky-700">改名</button><button type="button" onClick={() => clearGroup(group)} className="rounded-lg px-2 text-xs text-rose-500">清空</button></form> : <button key={group} onClick={() => { setManagingGroup(group); setGroupManagerValue(group); }} className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-xs text-slate-500 hover:bg-white"><span className="truncate">{group}</span><Pencil className="size-3" /></button>)}</div>}
 
+      {archivedCount > 0 && (
+        <button onClick={() => { setArchiveView(view => !view); setConversationQuery(""); }} className="mb-2 flex w-full items-center gap-2 rounded-xl bg-white px-3 py-2 text-left text-xs font-medium text-slate-600 shadow-sm hover:bg-[#edf6fb]">
+          <Archive className="size-3.5 text-slate-400" />
+          <span className="flex-1">{archiveView ? "返回活跃会话" : `已归档（${archivedCount}）`}</span>
+          <ChevronRight className={`size-3.5 text-slate-300 transition-transform ${archiveView ? "rotate-90" : ""}`} />
+        </button>
+      )}
+
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1" aria-label="会话历史">
         {currentConversations.length === 0 ? (
           <p className="px-2 py-4 text-sm leading-6 text-slate-400">这个 AI 还没有对话。每个 AI 的记录会分开保存。</p>
@@ -382,6 +441,7 @@ export default function Home() {
                   <button onClick={() => { setActiveConversationId(conversation.id); setDrawerOpen(false); }} className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm text-slate-700">{conversation.title}</button>
                   <div className="flex items-center gap-0.5">
                     <button onClick={() => togglePin(conversation.id)} className={`grid size-7 place-items-center rounded-lg ${conversation.pinned ? "bg-amber-50 text-amber-600" : "text-slate-400 hover:bg-slate-100"}`} aria-label={conversation.pinned ? "取消置顶" : "置顶会话"}><Pin className={`size-3 ${conversation.pinned ? "fill-current" : ""}`} /></button>
+                    <button onClick={() => archiveView ? unarchiveConversation(conversation.id) : archiveConversation(conversation.id)} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={archiveView ? "恢复到活跃列表" : "归档会话"}>{archiveView ? <ArchiveRestore className="size-3" /> : <Archive className="size-3" />}</button>
                     <button onClick={() => { setGroupingId(conversation.id); setGroupValue(conversation.group ?? ""); }} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="分类会话"><FolderPlus className="size-3" /></button>
                     <button onClick={() => beginRename(conversation)} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="重命名会话"><Pencil className="size-3" /></button>
                     <button onClick={() => removeConversation(conversation.id)} className="grid size-7 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label="删除会话"><Trash2 className="size-3" /></button>
@@ -430,6 +490,9 @@ export default function Home() {
               onRegenerate={regenerate}
               onDeleteMessage={deleteMessage}
               onFeedback={setFeedback}
+              onSwitchCandidate={switchCandidate}
+              searchQuery={messageQuery}
+              activeMatchId={activeMatchId}
               isLoading={isStreaming}
               placeholder={isConfigured ? `向 ${activeAI?.name} 发送消息` : "请先前往管理 AI 配置模型"}
               emptyStateMessage={isConfigured ? `开始和 ${activeAI?.name} 聊聊` : "先完成当前 AI 的模型设置，再开始对话"}

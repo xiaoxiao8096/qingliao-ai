@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
 import { getLocalDraft, saveLocalDraft } from "@/lib/localChat";
-import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff, RefreshCw, ThumbsUp, ThumbsDown, Pencil, Trash2, Check } from "lucide-react";
+import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff, RefreshCw, ThumbsUp, ThumbsDown, Pencil, Trash2, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Streamdown } from "streamdown";
 import { toast } from "sonner";
@@ -21,6 +21,10 @@ export type Message = {
   createdAt?: number;
   /** 用户对助手消息的反馈（仅本地） */
   feedback?: "up" | "down";
+  /** 重新生成产生的多个候选回复 */
+  candidates?: string[];
+  /** 当前展示的候选下标 */
+  activeCandidate?: number;
 };
 
 /** 发送给上层（页面）的载荷：文本 + 附件。编辑重发时携带 editMessageId。 */
@@ -42,6 +46,12 @@ export type AIChatBoxProps = {
   onDeleteMessage?: (messageId: string) => void;
   /** 用户对某条助手消息点赞 / 踩 */
   onFeedback?: (messageId: string, value: "up" | "down") => void;
+  /** 切换某条助手消息的候选回复（多候选重生成后） */
+  onSwitchCandidate?: (messageId: string, index: number) => void;
+  /** 对话内搜索关键词：命中处高亮（用户消息），并配合 activeMatchId 闪烁定位 */
+  searchQuery?: string;
+  /** 当前应高亮定位的消息 id（搜索导航时由上层传入） */
+  activeMatchId?: string | null;
   isLoading?: boolean;
   placeholder?: string;
   className?: string;
@@ -70,6 +80,29 @@ function formatTime(ts?: number) {
   return `${hh}:${mm}`;
 }
 
+/** 在纯文本中把命中关键词用 <mark> 包裹（用于对话内搜索高亮）。 */
+function highlightText(text: string, query: string): React.ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+  const lower = text.toLowerCase();
+  const lowerQ = q.toLowerCase();
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+  while (i < text.length) {
+    const idx = lower.indexOf(lowerQ, i);
+    if (idx === -1) { nodes.push(text.slice(i)); break; }
+    if (idx > i) nodes.push(text.slice(i, idx));
+    nodes.push(
+      <mark key={key++} className="rounded bg-amber-200 px-0.5 text-inherit">
+        {text.slice(idx, idx + q.length)}
+      </mark>,
+    );
+    i = idx + q.length;
+  }
+  return nodes;
+}
+
 function AttachmentThumb({ attachment }: { attachment: Attachment }) {
   const isImage = attachment.type.startsWith("image/");
   const isVideo = attachment.type.startsWith("video/");
@@ -95,6 +128,9 @@ export function AIChatBox({
   onRegenerate,
   onDeleteMessage,
   onFeedback,
+  onSwitchCandidate,
+  searchQuery,
+  activeMatchId,
   isLoading = false,
   placeholder = "Type your message...",
   className,
@@ -356,11 +392,13 @@ export function AIChatBox({
                 return (
                   <div
                     key={message.id}
+                    data-message-id={message.id}
                     className={cn(
                       "group/msg flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300",
                       isUser
                         ? "justify-end items-start"
-                        : "justify-start items-start"
+                        : "justify-start items-start",
+                      activeMatchId === message.id && "rounded-xl ring-2 ring-amber-300 bg-amber-50/40"
                     )}
                     style={
                       shouldApplyMinHeight
@@ -401,14 +439,32 @@ export function AIChatBox({
                             <Streamdown mode="streaming" shikiTheme={["github-light", "github-dark"]} controls={{ code: true }}>{message.content}</Streamdown>
                           </div>
                         ) : (
-                          <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
+                          <p className="whitespace-pre-wrap break-words text-sm">{searchQuery ? highlightText(message.content, searchQuery) : message.content}</p>
                         )}
                         {message.createdAt ? (
                           <div className="mt-1 text-right text-[10px] opacity-60">{formatTime(message.createdAt)}</div>
                         ) : null}
                       </div>
 
-                      <div className="mt-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100">
+                      {isAssistant && message.candidates && message.candidates.length > 1 && (
+                        <div className="mt-1 flex items-center gap-1.5">
+                          {message.candidates.map((_, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => onSwitchCandidate?.(message.id, i)}
+                              aria-label={`切换到候选 ${i + 1}`}
+                              className={cn(
+                                "size-2 rounded-full transition-colors",
+                                (message.activeCandidate ?? 0) === i ? "bg-slate-600" : "bg-slate-300 hover:bg-slate-400"
+                              )}
+                            />
+                          ))}
+                          <span className="text-[10px] text-slate-400">候选 {(message.activeCandidate ?? 0) + 1}/{message.candidates.length}</span>
+                        </div>
+                      )}
+
+                      <div className="mt-1 flex flex-wrap items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100 max-sm:opacity-100">
                         {isAssistant && (
                           <button type="button" onClick={() => onRegenerate?.(message.id)} className={actionBtn} aria-label="重新生成" title="重新生成">
                             <RefreshCw className="size-3.5" />

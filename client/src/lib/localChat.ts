@@ -15,6 +15,10 @@ export type LocalMessage = {
   attachments?: Attachment[];
   /** 用户对助手消息的反馈（仅本地记录，不上传） */
   feedback?: "up" | "down";
+  /** 重新生成产生的多个候选回复（含当前激活的那条） */
+  candidates?: string[];
+  /** 当前展示的候选下标 */
+  activeCandidate?: number;
 };
 
 export type LocalConversation = {
@@ -26,6 +30,8 @@ export type LocalConversation = {
   messages: LocalMessage[];
   pinned?: boolean;
   group?: string;
+  /** 是否已归档（归档后从活跃列表隐藏，可在归档视图恢复） */
+  archived?: boolean;
 };
 
 const SETTINGS_KEY = "qingliao.personal.settings.v1";
@@ -215,6 +221,84 @@ export function setMessageFeedback(
     if (item.id !== conversationId) return item;
     return { ...item, messages: item.messages.map(message => message.id === messageId ? { ...message, feedback } : message) };
   });
+}
+
+/** 把流式增量写入某条助手消息的第 candidateIndex 个候选，并同步更新激活候选与正文。 */
+export function appendAssistantCandidateDelta(
+  conversations: LocalConversation[],
+  conversationId: string,
+  messageId: string,
+  candidateIndex: number,
+  delta: string,
+) {
+  const now = Date.now();
+  return conversations.map(item => {
+    if (item.id !== conversationId) return item;
+    return {
+      ...item,
+      updatedAt: now,
+      messages: item.messages.map(message => {
+        if (message.id !== messageId) return message;
+        const candidates = [...(message.candidates ?? [message.content])];
+        candidates[candidateIndex] = (candidates[candidateIndex] ?? "") + delta;
+        return { ...message, candidates, activeCandidate: candidateIndex, content: candidates[candidateIndex] };
+      }),
+    };
+  });
+}
+
+/** 切换某条助手消息当前展示的候选。 */
+export function setActiveCandidate(
+  conversations: LocalConversation[],
+  conversationId: string,
+  messageId: string,
+  index: number,
+) {
+  return conversations.map(item => {
+    if (item.id !== conversationId) return item;
+    return {
+      ...item,
+      messages: item.messages.map(message => {
+        if (message.id !== messageId) return message;
+        const candidates = message.candidates ?? [message.content];
+        const clamped = Math.max(0, Math.min(index, candidates.length - 1));
+        return { ...message, activeCandidate: clamped, content: candidates[clamped] ?? "" };
+      }),
+    };
+  });
+}
+
+/** 重新生成失败时，丢弃刚写入的空候选，并回退到仍有效的候选。 */
+export function dropEmptyAssistantCandidate(
+  conversations: LocalConversation[],
+  conversationId: string,
+  messageId: string,
+  candidateIndex: number,
+) {
+  return conversations.map(item => {
+    if (item.id !== conversationId) return item;
+    return {
+      ...item,
+      messages: item.messages.map(message => {
+        if (message.id !== messageId) return message;
+        const candidates = message.candidates;
+        if (candidates == null) return message;
+        const next = candidates.filter((_, i) => i !== candidateIndex || Boolean(candidates[i]));
+        const active = Math.min(message.activeCandidate ?? 0, Math.max(0, next.length - 1));
+        return { ...message, candidates: next, activeCandidate: active, content: next[active] ?? "" };
+      }),
+    };
+  });
+}
+
+/** 归档会话（从活跃列表隐藏）。 */
+export function archiveLocalConversation(conversations: LocalConversation[], id: string) {
+  return conversations.map(item => item.id === id ? { ...item, archived: true, updatedAt: Date.now() } : item);
+}
+
+/** 取消归档（恢复到活跃列表）。 */
+export function unarchiveLocalConversation(conversations: LocalConversation[], id: string) {
+  return conversations.map(item => item.id === id ? { ...item, archived: false, updatedAt: Date.now() } : item);
 }
 
 export function modelEndpoint(baseUrl: string) {
