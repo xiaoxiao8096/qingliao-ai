@@ -1,32 +1,47 @@
 import { Button } from "@/components/ui/button";
+import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { checkModelConnection, checkSelectedModel, fetchAvailableModels } from "@/lib/localChat";
 import {
+  createAppearancePreset,
   createAIProfile,
+  DEFAULT_AI_APPEARANCE,
   getAIProfiles,
+  getAppearancePresets,
   getActiveAIId,
   imageFileToDataUrl,
+  saveAppearancePresets,
   saveAIProfiles,
   setActiveAIId,
+  type AIAppearance,
+  type AppearancePreset,
   type LocalAIProfile,
 } from "@/lib/localProfiles";
+import { applyMediaProviderTemplate, mediaProviderTemplatesFor } from "@/lib/mediaProviderTemplates";
 import {
   ArrowLeft,
+  BookmarkPlus,
   Bot,
   CheckCircle2,
   Eye,
   EyeOff,
+  GripVertical,
   ImagePlus,
   KeyRound,
   Loader2,
+  Palette,
   Plus,
   Settings2,
   Trash2,
+  Type,
   Wifi,
+  X,
 } from "lucide-react";
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, type CSSProperties, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -38,6 +53,72 @@ function validateBaseUrl(value: string) {
   const url = new URL(value.trim());
   if (url.protocol !== "https:") throw new Error("请填写 HTTPS API 地址。");
   return url.toString().replace(/\/$/, "");
+}
+
+const accentOptions: { value: AIAppearance["accent"]; label: string; className: string }[] = [
+  { value: "sky", label: "天空", className: "bg-sky-400" },
+  { value: "violet", label: "紫罗兰", className: "bg-violet-400" },
+  { value: "rose", label: "玫瑰", className: "bg-rose-400" },
+  { value: "emerald", label: "翡翠", className: "bg-emerald-400" },
+  { value: "amber", label: "琥珀", className: "bg-amber-400" },
+];
+
+const fontScaleOptions: { value: AIAppearance["fontScale"]; label: string }[] = [
+  { value: "small", label: "小" },
+  { value: "medium", label: "标准" },
+  { value: "large", label: "大" },
+];
+
+const radiusOptions: { value: AIAppearance["bubbleRadius"]; label: string }[] = [
+  { value: "soft", label: "柔和" },
+  { value: "rounded", label: "圆润" },
+  { value: "pill", label: "胶囊" },
+];
+
+const textureOptions: { value: AIAppearance["chatTexture"]; label: string }[] = [
+  { value: "plain", label: "纯色" },
+  { value: "dots", label: "圆点" },
+  { value: "grid", label: "网格" },
+  { value: "paper", label: "纸张" },
+];
+
+const previewPalette: Record<AIAppearance["accent"], { primary: string; soft: string }> = {
+  sky: { primary: "#16698e", soft: "#e4f3fb" },
+  violet: { primary: "#6844ad", soft: "#efe9ff" },
+  rose: { primary: "#a94d63", soft: "#fbe9ee" },
+  emerald: { primary: "#277a5f", soft: "#e4f5ed" },
+  amber: { primary: "#95621a", soft: "#fff3d9" },
+};
+
+function appearanceOf(value?: Partial<AIAppearance>): AIAppearance {
+  return { ...DEFAULT_AI_APPEARANCE, ...value };
+}
+
+function previewTexture(appearance: AIAppearance): CSSProperties {
+  const tint = previewPalette[appearance.accent].primary;
+  if (appearance.chatTexture === "dots") return { backgroundColor: "#fbfcfd", backgroundImage: "radial-gradient(rgba(100,116,139,.20) 1px, transparent 1px)", backgroundSize: "16px 16px" };
+  if (appearance.chatTexture === "grid") return { backgroundColor: "#fbfcfd", backgroundImage: "linear-gradient(rgba(100,116,139,.15) 1px, transparent 1px), linear-gradient(90deg, rgba(100,116,139,.15) 1px, transparent 1px)", backgroundSize: "20px 20px" };
+  if (appearance.chatTexture === "paper") return { backgroundColor: "#fffefd", backgroundImage: `linear-gradient(115deg, ${tint}18, transparent 45%), repeating-linear-gradient(0deg, transparent, transparent 26px, rgba(100,116,139,.12) 27px)` };
+  return { backgroundColor: "#fbfcfd" };
+}
+
+function previewRadius(value: AIAppearance["bubbleRadius"]) {
+  return value === "soft" ? "0.7rem" : value === "pill" ? "1.8rem" : "1.25rem";
+}
+
+function previewFontSize(value: AIAppearance["fontScale"]) {
+  return value === "small" ? "12px" : value === "large" ? "16px" : "14px";
+}
+
+function SortablePresetItem({ preset, summary, onApply, onRemove }: { preset: AppearancePreset; summary: string; onApply: () => void; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: preset.id });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={`flex items-center gap-1 rounded-xl border border-white bg-white/80 p-1 ${isDragging ? "z-10 opacity-70 shadow-lg" : ""}`}>
+      <button type="button" className="grid size-8 shrink-0 touch-none place-items-center rounded-lg text-slate-400 hover:bg-violet-50 hover:text-violet-600" aria-label={`拖动排序主题预设 ${preset.name}`} {...attributes} {...listeners}><GripVertical className="size-4" /></button>
+      <button type="button" onClick={onApply} className="min-w-0 flex-1 rounded-lg px-1 py-1.5 text-left text-xs text-slate-600 hover:bg-violet-50"><span className="block truncate font-semibold text-slate-700">{preset.name}</span><span className="block truncate text-[10px] text-slate-400">{summary}</span></button>
+      <button type="button" onClick={onRemove} className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label={`删除主题预设 ${preset.name}`}><X className="size-3.5" /></button>
+    </div>
+  );
 }
 
 export default function AIManager() {
@@ -52,9 +133,13 @@ export default function AIManager() {
   const [testingSelectedModel, setTestingSelectedModel] = useState(false);
   const [modelFeedback, setModelFeedback] = useState<{ kind: "loading" | "error" | "success"; text: string } | null>(null);
   const [modelTestFeedback, setModelTestFeedback] = useState<{ kind: "loading" | "error" | "success"; text: string } | null>(null);
+  const [presets, setPresets] = useState<AppearancePreset[]>(() => getAppearancePresets());
+  const [presetName, setPresetName] = useState("");
   const avatarInput = useRef<HTMLInputElement>(null);
   const current = profiles.find(profile => profile.id === editingId) ?? profiles[0];
   const [form, setForm] = useState<LocalAIProfile>(() => current);
+  const appearance = appearanceOf(form.appearance);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   useEffect(() => {
     const selected = profiles.find(profile => profile.id === editingId) ?? profiles[0];
@@ -69,6 +154,60 @@ export default function AIManager() {
   function persist(next: LocalAIProfile[]) {
     setProfiles(next);
     saveAIProfiles(next);
+  }
+
+  function saveAppearance(patch: Partial<AIAppearance>) {
+    const appearance = appearanceOf({ ...form.appearance, ...patch });
+    const updatedAt = Date.now();
+    setForm(previous => ({ ...previous, appearance, updatedAt }));
+    persist(profiles.map(profile => profile.id === form.id ? { ...profile, appearance, updatedAt } : profile));
+  }
+
+  function saveWelcome() {
+    const welcome = (form.welcome ?? "").trim().slice(0, 180);
+    const updatedAt = Date.now();
+    setForm(previous => ({ ...previous, welcome, updatedAt }));
+    persist(profiles.map(profile => profile.id === form.id ? { ...profile, welcome, updatedAt } : profile));
+    toast.success(welcome ? "专属欢迎语已保存。" : "已清空专属欢迎语。");
+  }
+
+  function persistPresets(next: AppearancePreset[]) {
+    setPresets(next);
+    saveAppearancePresets(next);
+  }
+
+  function savePreset() {
+    const name = presetName.trim();
+    if (!name) {
+      toast.error("请先为这个主题预设取个名字。");
+      return;
+    }
+    if (presets.length >= 20) {
+      toast.error("最多可保存 20 个主题预设，请先删除不常用的预设。");
+      return;
+    }
+    const preset = createAppearancePreset(name, appearance);
+    persistPresets([preset, ...presets]);
+    setPresetName("");
+    toast.success(`已保存主题预设「${preset.name}」。`);
+  }
+
+  function applyPreset(preset: AppearancePreset) {
+    saveAppearance(preset.appearance);
+    toast.success(`已将「${preset.name}」应用到 ${form.name || "当前 AI"}。`);
+  }
+
+  function removePreset(id: string) {
+    persistPresets(presets.filter(preset => preset.id !== id));
+  }
+
+  function reorderPresets(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = presets.findIndex(preset => preset.id === active.id);
+    const newIndex = presets.findIndex(preset => preset.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    persistPresets(arrayMove(presets, oldIndex, newIndex));
   }
 
   function addProfile() {
@@ -116,6 +255,7 @@ export default function AIManager() {
         name: form.name.trim(),
         model: form.model.trim(),
         apiKey: form.apiKey.trim(),
+        welcome: form.welcome?.trim().slice(0, 180) ?? "",
         baseUrl: validateBaseUrl(form.baseUrl),
         updatedAt: Date.now(),
       };
@@ -269,10 +409,81 @@ export default function AIManager() {
                 <div className="relative"><KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input id="ai-key" type={showKey ? "text" : "password"} value={form.apiKey} onChange={event => { setForm(previous => ({ ...previous, apiKey: event.target.value })); setAvailableModels([]); setModelFeedback(null); setModelTestFeedback(null); }} placeholder="sk-..." className="h-11 rounded-xl border-slate-200 bg-slate-50/60 pl-10 pr-11" autoComplete="off" required /><button type="button" onClick={() => setShowKey(value => !value)} className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}>{showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div>
               </div>
 
+              <details className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5">
+                <summary className="cursor-pointer list-none text-sm font-semibold text-slate-700">多模态创作端点（可选）<span className="ml-2 text-xs font-normal text-slate-400">图片、语音、音乐、视频</span></summary>
+                <p className="mt-2 text-xs leading-5 text-slate-500">图片与语音留空时按 OpenAI 兼容路径推导；视频默认使用官方异步任务路径。音乐服务没有统一标准，请填写服务商完整端点和高级参数。所有配置和 API Key 仍只保存在当前浏览器。</p>
+                <div className="mt-3 space-y-3">{(["image", "speech", "music", "video"] as const).map(capability => <div key={capability} className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold text-slate-600">{{ image: "图片生成", speech: "语音合成", music: "音乐生成", video: "视频生成" }[capability]}</p><span className="text-[10px] text-slate-400">模板只填请求形态，不会覆盖端点或模型</span></div><div className="mt-2 flex flex-wrap gap-1.5">{mediaProviderTemplatesFor(capability).map(template => <button key={template.id} type="button" onClick={() => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: applyMediaProviderTemplate(previous.media?.[capability], template) } }))} title={template.browserNotice ?? template.note} className={`rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${form.media?.[capability]?.providerTemplateId === template.id ? "border-sky-300 bg-sky-50 text-sky-700" : "border-slate-200 bg-white text-slate-500 hover:border-sky-200 hover:bg-sky-50"}`}>{template.name}</button>)}</div><div className="mt-2 grid gap-2 sm:grid-cols-2"><Input value={form.media?.[capability]?.endpoint ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], endpoint: event.target.value } } }))} placeholder="可选：完整 HTTPS 端点" className="h-9 rounded-lg border-slate-200 bg-slate-50 text-xs" /><Input value={form.media?.[capability]?.model ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], model: event.target.value } } }))} placeholder="可选：专用模型名" className="h-9 rounded-lg border-slate-200 bg-slate-50 text-xs" /></div>{capability === "speech" && <Input value={form.media?.speech?.voice ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, speech: { ...previous.media?.speech, voice: event.target.value } } }))} placeholder="可选：语音名，默认 alloy" className="mt-2 h-9 rounded-lg border-slate-200 bg-slate-50 text-xs" />}<details className="mt-2 rounded-lg bg-slate-50 p-2.5"><summary className="cursor-pointer text-xs font-semibold text-slate-500">高级兼容参数（自定义音乐/视频服务才需要）</summary><div className="mt-2 grid gap-2 sm:grid-cols-2"><select value={form.media?.[capability]?.requestFormat ?? (capability === "video" ? "form" : "json")} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], requestFormat: event.target.value as "json" | "form" } } }))} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-600"><option value="json">JSON 请求体</option><option value="form">表单请求体</option></select><Input value={form.media?.[capability]?.resultPath ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], resultPath: event.target.value } } }))} placeholder="可选：结果字段，如 data.0.url" className="h-9 rounded-lg border-slate-200 bg-white text-xs" /></div><div className="mt-2 grid gap-2 sm:grid-cols-2"><Input value={form.media?.[capability]?.resultMimeType ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], resultMimeType: event.target.value } } }))} placeholder="可选：裸 Base64 的 MIME，如 audio/mpeg" className="h-9 rounded-lg border-slate-200 bg-white text-xs" /><span className="self-center text-[10px] leading-4 text-slate-400">二进制或结果链接会自动读取 MIME，无需填写。</span></div><Textarea value={form.media?.[capability]?.requestTemplate ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], requestTemplate: event.target.value } } }))} placeholder={'可选 JSON，如 {"model":"{{model}}","prompt":"{{prompt}}"}'} className="mt-2 min-h-16 rounded-lg border-slate-200 bg-white text-xs" />{(capability === "music" || capability === "video") && <div className="mt-2 grid gap-2 sm:grid-cols-2"><Input value={form.media?.[capability]?.pollEndpoint ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], pollEndpoint: event.target.value } } }))} placeholder="可选：轮询端点，使用 {{id}}" className="h-9 rounded-lg border-slate-200 bg-white text-xs" /><Input value={form.media?.[capability]?.contentEndpoint ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], contentEndpoint: event.target.value } } }))} placeholder="可选：内容端点，使用 {{id}}" className="h-9 rounded-lg border-slate-200 bg-white text-xs" /></div>}{capability === "video" && <Input value={form.media?.video?.cancelEndpoint ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, video: { ...previous.media?.video, cancelEndpoint: event.target.value } } }))} placeholder="可选：取消端点，使用 {{id}}" className="mt-2 h-9 rounded-lg border-slate-200 bg-white text-xs" />}</details></div>)}</div>
+              </details>
+
               <div className="space-y-2">
                 <Label htmlFor="ai-persona">人物设定（可选）</Label>
                 <Textarea id="ai-persona" value={form.persona} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setForm(previous => ({ ...previous, persona: event.target.value }))} placeholder="例如：你是一位严谨的工程师，回答时先给结论再展开。" className="min-h-24 rounded-xl border-slate-200 bg-slate-50/60" />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="ai-welcome">专属欢迎语（可选）</Label>
+                <Textarea id="ai-welcome" value={form.welcome ?? ""} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setForm(previous => ({ ...previous, welcome: event.target.value }))} maxLength={180} placeholder="例如：你好，我是你的写作伙伴。今天想写点什么？" className="min-h-20 rounded-xl border-slate-200 bg-slate-50/60" />
+                <div className="flex items-center justify-between gap-3"><p className="text-xs leading-5 text-slate-400">新建对话且尚无消息时，会以此欢迎语替代默认提示。</p><Button type="button" onClick={saveWelcome} variant="outline" size="sm" className="h-8 shrink-0 rounded-lg border-violet-200 bg-white text-violet-700 hover:bg-violet-50">保存欢迎语</Button></div>
+              </div>
+
+              <section className="rounded-2xl border border-violet-100 bg-violet-50/45 p-4" aria-labelledby="ai-appearance-title">
+                <div className="flex gap-3">
+                  <div className="grid size-8 shrink-0 place-items-center rounded-xl bg-white text-violet-600 shadow-sm"><Palette className="size-4" /></div>
+                  <div>
+                    <h3 id="ai-appearance-title" className="text-sm font-semibold text-slate-700">这个 AI 的外观</h3>
+                    <p className="mt-0.5 text-xs leading-5 text-slate-500">点击即保存到当前 AI；不同角色可拥有不同视觉标记。</p>
+                  </div>
+                </div>
+                <div className="mt-4 overflow-hidden rounded-2xl border border-white bg-white shadow-sm" aria-label="实时聊天界面预览">
+                  <div className="min-h-40 p-3" style={previewTexture(appearance)}>
+                    <div className="mb-3 flex items-center justify-between" style={{ fontSize: previewFontSize(appearance.fontScale) }}>
+                      <span className="font-semibold text-slate-700">实时聊天预览</span>
+                      <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] text-slate-500 shadow-sm">{form.name || "当前 AI"}</span>
+                    </div>
+                    <div className="space-y-2" style={{ fontSize: previewFontSize(appearance.fontScale) }}>
+                      <div className="w-fit max-w-[82%] bg-white/90 px-3 py-2 text-slate-600 shadow-sm" style={{ borderRadius: previewRadius(appearance.bubbleRadius) }}>你好，我会按你的风格来回答。</div>
+                      <div className="ml-auto w-fit max-w-[82%] px-3 py-2 text-white shadow-sm" style={{ borderRadius: previewRadius(appearance.bubbleRadius), backgroundColor: previewPalette[appearance.accent].primary }}>这样看起来很舒服。</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-100 bg-white px-3 py-2 text-[10px] text-slate-500"><span>会随下方选项即时变化</span><span className="font-semibold" style={{ color: previewPalette[appearance.accent].primary }}>{accentOptions.find(option => option.value === appearance.accent)?.label}主题</span></div>
+                </div>
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-slate-500">主题色</p>
+                    <div className="flex flex-wrap gap-2">
+                      {accentOptions.map(option => {
+                        const selected = (form.appearance?.accent ?? DEFAULT_AI_APPEARANCE.accent) === option.value;
+                        return <button key={option.value} type="button" onClick={() => saveAppearance({ accent: option.value })} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold transition ${selected ? "border-violet-300 bg-white text-slate-800 shadow-sm" : "border-transparent bg-white/65 text-slate-500 hover:bg-white"}`} aria-pressed={selected}><span className={`size-3 rounded-full ${option.className}`} />{option.label}</button>;
+                      })}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500"><Type className="size-3.5" />字体大小</p>
+                      <div className="grid grid-cols-3 rounded-xl bg-white/70 p-1">
+                        {fontScaleOptions.map(option => { const selected = (form.appearance?.fontScale ?? DEFAULT_AI_APPEARANCE.fontScale) === option.value; return <button key={option.value} type="button" onClick={() => saveAppearance({ fontScale: option.value })} className={`h-8 rounded-lg text-xs font-semibold transition ${selected ? "bg-violet-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"}`} aria-pressed={selected}>{option.label}</button>; })}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs font-semibold text-slate-500">气泡圆角</p>
+                      <div className="grid grid-cols-3 rounded-xl bg-white/70 p-1">
+                        {radiusOptions.map(option => { const selected = (form.appearance?.bubbleRadius ?? DEFAULT_AI_APPEARANCE.bubbleRadius) === option.value; return <button key={option.value} type="button" onClick={() => saveAppearance({ bubbleRadius: option.value })} className={`h-8 rounded-lg text-xs font-semibold transition ${selected ? "bg-violet-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"}`} aria-pressed={selected}>{option.label}</button>; })}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-slate-500">聊天背景</p>
+                    <div className="grid grid-cols-4 gap-1 rounded-xl bg-white/70 p-1">
+                      {textureOptions.map(option => { const selected = (form.appearance?.chatTexture ?? DEFAULT_AI_APPEARANCE.chatTexture) === option.value; return <button key={option.value} type="button" onClick={() => saveAppearance({ chatTexture: option.value })} className={`h-8 rounded-lg text-xs font-semibold transition ${selected ? "bg-violet-600 text-white shadow-sm" : "text-slate-500 hover:bg-white"}`} aria-pressed={selected}>{option.label}</button>; })}
+                    </div>
+                  </div>
+                  <div className="border-t border-violet-100 pt-4">
+                    <p className="text-xs font-semibold text-slate-600">保存为主题预设</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">预设只保存在当前 Safari，可快速套用到任意 AI。</p>
+                    <div className="mt-2 flex gap-2"><Input value={presetName} onChange={event => setPresetName(event.target.value)} maxLength={24} placeholder="例如：深夜写作" className="h-9 rounded-xl border-violet-100 bg-white text-sm" /><Button type="button" onClick={savePreset} className="h-9 shrink-0 rounded-xl bg-violet-600 px-3 text-xs text-white hover:bg-violet-700"><BookmarkPlus className="mr-1 size-3.5" />保存</Button></div>
+                    {presets.length > 0 ? <><p className="mt-3 text-[10px] text-slate-400">按住左侧手柄拖动排序；顺序会保存在当前 Safari。</p><DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={reorderPresets}><SortableContext items={presets.map(preset => preset.id)} strategy={verticalListSortingStrategy}><div className="mt-1.5 space-y-1.5" aria-label="已保存主题预设">{presets.map(preset => <SortablePresetItem key={preset.id} preset={preset} summary={`${accentOptions.find(option => option.value === preset.appearance.accent)?.label} · ${fontScaleOptions.find(option => option.value === preset.appearance.fontScale)?.label}字 · ${textureOptions.find(option => option.value === preset.appearance.chatTexture)?.label}`} onApply={() => applyPreset(preset)} onRemove={() => removePreset(preset.id)} />)}</div></SortableContext></DndContext></> : <p className="mt-3 rounded-xl border border-dashed border-violet-100 bg-white/55 px-3 py-2 text-xs text-slate-400">还没有保存的主题预设。</p>}
+                  </div>
+                </div>
+              </section>
 
               <div className="rounded-2xl border border-sky-100 bg-sky-50/50 p-3.5">
                 <div className="flex gap-3"><Wifi className="mt-0.5 size-4 shrink-0 text-[#4a86a8]" /><div><p className="text-sm font-semibold text-slate-700">保存前验证</p><p className="mt-0.5 text-xs leading-5 text-slate-500">可先检查 <code>/models</code> 是否可访问；“测试当前模型”会发送一次不写入聊天记录的最小化请求，以同时验证 Key 和模型名称。</p></div></div>

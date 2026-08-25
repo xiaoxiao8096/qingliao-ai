@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Attachment } from "@/lib/attachments";
 import { prepareAttachment } from "@/lib/attachments";
 import { getLocalDraft, saveLocalDraft } from "@/lib/localChat";
+import { BACKGROUND_GRAIN_TEXTURE, backgroundGradientOverlay, backgroundTemperatureOverlay, backgroundVignetteOverlay } from "@/lib/localProfiles";
 import { Loader2, Send, User, Sparkles, Paperclip, X, FileText, Film, Copy, Square, ArrowDown, Mic, MicOff, RefreshCw, ThumbsUp, ThumbsDown, Pencil, Trash2, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Streamdown } from "streamdown";
@@ -58,10 +59,33 @@ export type AIChatBoxProps = {
   height?: string | number;
   emptyStateMessage?: string;
   suggestedPrompts?: string[];
+  /** 点击后填入输入框的常用提示词卡片。 */
+  promptShortcuts?: ReadonlyArray<{ id: string; title: string; prompt: string }>;
   assistantName?: string;
   assistantAvatar?: string;
   userName?: string;
   userAvatar?: string;
+  /** 当前 AI 保存的本机聊天背景图片。 */
+  backgroundImage?: string;
+  /** 背景图片模糊程度，单位为像素。 */
+  backgroundBlur?: number;
+  /** 背景图片的亮度、对比度、饱和度与色温。 */
+  backgroundBrightness?: number;
+  backgroundContrast?: number;
+  backgroundSaturation?: number;
+  backgroundTemperature?: number;
+  backgroundVignette?: number;
+  backgroundGrain?: number;
+  backgroundGradientStart?: string;
+  backgroundGradientEnd?: string;
+  backgroundGradientOpacity?: number;
+  backgroundGradientAngle?: number;
+  /** 背景图片上的浅色保护层透明度。 */
+  backgroundOpacity?: number;
+  /** 背景图片缩放比例与定位。 */
+  backgroundScale?: number;
+  backgroundPositionX?: number;
+  backgroundPositionY?: number;
   /** Optional local-storage key used to restore an unsent draft. */
   draftKey?: string;
 };
@@ -137,10 +161,27 @@ export function AIChatBox({
   height = "600px",
   emptyStateMessage = "Start a conversation with AI",
   suggestedPrompts,
+  promptShortcuts,
   assistantName = "AI",
   assistantAvatar,
   userName = "我",
   userAvatar,
+  backgroundImage,
+  backgroundBlur = 0,
+  backgroundBrightness = 100,
+  backgroundContrast = 100,
+  backgroundSaturation = 100,
+  backgroundTemperature = 0,
+  backgroundVignette = 0,
+  backgroundGrain = 0,
+  backgroundGradientStart = "#4f8fd8",
+  backgroundGradientEnd = "#8b5cf6",
+  backgroundGradientOpacity = 0,
+  backgroundGradientAngle = 135,
+  backgroundOpacity = 0.72,
+  backgroundScale = 100,
+  backgroundPositionX = 50,
+  backgroundPositionY = 50,
   draftKey,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
@@ -339,8 +380,15 @@ export function AIChatBox({
       style={{ height }}
     >
       {/* Messages Area */}
-      <div className="relative flex-1 min-h-0 overflow-hidden">
-        {displayMessages.length === 0 ? (
+      <div className="chat-message-area relative flex-1 min-h-0 overflow-hidden">
+        {backgroundImage && <>
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 scale-105" style={{ backgroundImage: `linear-gradient(rgb(255 255 255 / ${backgroundOpacity}), rgb(255 255 255 / ${backgroundOpacity})), linear-gradient(${backgroundTemperatureOverlay(backgroundTemperature)}, ${backgroundTemperatureOverlay(backgroundTemperature)}), url("${backgroundImage}")`, backgroundBlendMode: "normal, color, normal", backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${backgroundScale}%`, filter: `blur(${backgroundBlur}px) brightness(${backgroundBrightness}%) contrast(${backgroundContrast}%) saturate(${backgroundSaturation}%)` }} />
+          {backgroundGradientOpacity > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ backgroundImage: backgroundGradientOverlay(backgroundGradientStart, backgroundGradientEnd, backgroundGradientOpacity, backgroundGradientAngle) }} />}
+          {backgroundVignette > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ backgroundImage: backgroundVignetteOverlay(backgroundVignette) }} />}
+          {backgroundGrain > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0 mix-blend-soft-light" style={{ backgroundImage: BACKGROUND_GRAIN_TEXTURE, opacity: backgroundGrain / 140 }} />}
+        </>}
+        <div className="relative z-[1] h-full">
+          {displayMessages.length === 0 ? (
           <div className="flex h-full flex-col p-4">
             <div className="flex flex-1 flex-col items-center justify-center gap-6 text-muted-foreground">
               <div className="flex flex-col items-center gap-3">
@@ -360,6 +408,29 @@ export function AIChatBox({
                       {prompt}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {promptShortcuts && promptShortcuts.length > 0 && (
+                <div className="w-full max-w-2xl">
+                  <p className="mb-2 text-center text-xs font-medium text-muted-foreground">常用提示词 · 点击后可继续编辑</p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {promptShortcuts.map((shortcut) => (
+                      <button
+                        key={shortcut.id}
+                        type="button"
+                        onClick={() => {
+                          setInput(shortcut.prompt);
+                          adjustTextarea();
+                          requestAnimationFrame(() => textareaRef.current?.focus());
+                        }}
+                        disabled={isLoading}
+                        className="rounded-xl border border-border bg-card/90 px-3 py-2.5 text-left text-sm font-medium text-foreground shadow-sm transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {shortcut.title}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -415,7 +486,7 @@ export function AIChatBox({
                     <div className={cn("flex min-w-0 flex-col", isUser ? "items-end" : "items-start")}>
                       <div
                         className={cn(
-                          "group relative max-w-[80%] rounded-lg px-4 py-2.5",
+                          "chat-bubble group relative max-w-[80%] rounded-lg px-4 py-2.5",
                           isUser
                             ? "bg-primary text-primary-foreground"
                             : "bg-muted text-foreground"
@@ -436,7 +507,7 @@ export function AIChatBox({
                         )}
                         {isAssistant ? (
                           <div className="prose prose-sm max-w-none break-words">
-                            <Streamdown mode="streaming" shikiTheme={["github-light", "github-dark"]} controls={{ code: true }}>{message.content}</Streamdown>
+                            <Streamdown isAnimating={isLoading} shikiTheme={["github-light", "github-dark"]} controls={{ code: true }}>{message.content}</Streamdown>
                           </div>
                         ) : (
                           <p className="whitespace-pre-wrap break-words text-sm">{searchQuery ? highlightText(message.content, searchQuery) : message.content}</p>
@@ -524,7 +595,8 @@ export function AIChatBox({
               <div ref={messageEndRef} aria-hidden="true" className="h-px" />
             </div>
           </div>
-        )}
+          )}
+        </div>
 
         {showJump && (
           <button
