@@ -25,6 +25,7 @@ import {
 } from "@/lib/localChat";
 import { useThemePreference } from "@/contexts/ThemeContext";
 import { toPersistedAttachment, type Attachment } from "@/lib/attachments";
+import { miniPreviewRadius, miniPreviewTexture, previewAccentPalette } from "@/lib/themePreview";
 import { BACKGROUND_GRAIN_TEXTURE, BACKGROUND_GRADIENT_PRESETS, backgroundGradientOverlay, backgroundImageFileToDataUrl, BACKGROUND_FILTER_PRESETS, BACKGROUND_LAYOUT_PRESETS, backgroundTemperatureOverlay, backgroundVignetteOverlay, BUILTIN_AI_THEMES, createBackgroundPlanExport, createBackgroundPlanSharePayload, createCustomBackgroundFilterPreset, createCustomPromptShortcut, DEFAULT_AI_APPEARANCE, DEFAULT_PROMPT_SHORTCUTS, getActiveAIId, getAIProfiles, getCustomBackgroundFilterPresets, getCustomPromptShortcuts, getUserProfile, parseBackgroundPlanImport, parseBackgroundPlanSharePayload, saveAIProfiles, saveCustomBackgroundFilterPresets, saveCustomPromptShortcuts, setActiveAIId, type AIAppearance, type BackgroundFilter, type BackgroundPlanExport, type CustomBackgroundFilterPreset, type CustomPromptShortcut, type LocalAIProfile } from "@/lib/localProfiles";
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -151,6 +152,40 @@ function SortableBackgroundFilterPreset({ preset, onApply, onRename, onRemove }:
     <button type="button" onClick={onApply} className="min-w-0 flex-1 truncate rounded px-1 py-1 text-left text-[10px] font-medium text-slate-700 hover:bg-white" aria-label={`应用自定义滤镜组合 ${preset.name}`}><span className="truncate">{preset.name}</span><span className="ml-1 rounded px-1 py-0.5 text-[8px] font-medium" style={{ backgroundColor: `${preset.categoryColor}1f`, color: preset.categoryColor }}>{preset.category}</span></button>
     <button type="button" onClick={onRename} className="grid size-6 place-items-center rounded text-slate-400 hover:bg-white hover:text-sky-700" aria-label={`重命名自定义滤镜组合 ${preset.name}`}><Pencil className="size-3" /></button>
     <button type="button" onClick={onRemove} className="grid size-6 place-items-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-500" aria-label={`删除自定义滤镜组合 ${preset.name}`}><Trash2 className="size-3" /></button>
+  </div>;
+}
+
+function ThemeAppearancePreview({ appearance, assistantName, userName }: { appearance: AIAppearance; assistantName: string; userName: string }) {
+  const palette = previewAccentPalette[appearance.accent];
+  const assistantInitial = initials(assistantName);
+  const userInitial = initials(userName);
+  const fontSize = appearance.fontScale === "small" ? "9px" : appearance.fontScale === "large" ? "12px" : "10px";
+  const texture = miniPreviewTexture(appearance);
+  const backgroundStyle: React.CSSProperties = appearance.backgroundImage
+    ? {
+      backgroundImage: `url("${appearance.backgroundImage}")`,
+      backgroundPosition: `${appearance.backgroundPositionX}% ${appearance.backgroundPositionY}%`,
+      backgroundSize: `${appearance.backgroundScale}%`,
+      backgroundRepeat: "no-repeat",
+    }
+    : texture;
+  const textureName = ({ plain: "纯色", dots: "圆点", grid: "网格", paper: "纸张" } as const)[appearance.chatTexture];
+  const radiusName = ({ soft: "柔和", rounded: "圆润", pill: "胶囊" } as const)[appearance.bubbleRadius];
+
+  return <div className="theme-preview-card relative mt-2 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-inner" aria-label="主题效果实时预览">
+    <div className="absolute inset-0 overflow-hidden">
+      <div className="absolute -inset-2" style={{ ...backgroundStyle, filter: `blur(${appearance.backgroundBlur}px) brightness(${appearance.backgroundBrightness}%) contrast(${appearance.backgroundContrast}%) saturate(${appearance.backgroundSaturation}%)` }} />
+      <div className="absolute inset-0" style={{ backgroundImage: backgroundGradientOverlay(appearance.backgroundGradientStart, appearance.backgroundGradientEnd, appearance.backgroundGradientOpacity, appearance.backgroundGradientAngle) }} />
+      <div className="absolute inset-0" style={{ backgroundImage: `linear-gradient(${backgroundTemperatureOverlay(appearance.backgroundTemperature)}, ${backgroundTemperatureOverlay(appearance.backgroundTemperature)})`, mixBlendMode: "color" }} />
+      {(appearance.backgroundVignette ?? 0) > 0 && <div className="absolute inset-0" style={{ backgroundImage: backgroundVignetteOverlay(appearance.backgroundVignette ?? 0) }} />}
+      {(appearance.backgroundGrain ?? 0) > 0 && <div className="absolute inset-0 mix-blend-soft-light" style={{ backgroundImage: BACKGROUND_GRAIN_TEXTURE, opacity: (appearance.backgroundGrain ?? 0) / 140 }} />}
+      <div className="absolute inset-0 bg-white" style={{ opacity: Math.min(0.78, Math.max(0.12, (appearance.backgroundOpacity ?? 0.62) * 0.48)) }} />
+    </div>
+    <div className="relative min-h-36 p-2.5">
+      <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><span className="grid size-5 place-items-center rounded-md text-[8px] font-black text-white shadow-sm" style={{ backgroundColor: palette.primary }}>{assistantInitial}</span><span className="max-w-28 truncate text-[10px] font-bold text-slate-700">{assistantName || "当前 AI"}</span></div><span className="rounded-full border border-white/80 bg-white/70 px-1.5 py-0.5 text-[8px] font-bold" style={{ color: palette.ink }}>{palette.ink === "#0f4f6c" ? "清透" : "定制"}</span></div>
+      <div className="mt-3 space-y-2" style={{ fontSize }}><div className="flex items-end gap-1.5"><span className="grid size-4 shrink-0 place-items-center rounded-full text-[7px] font-bold text-white" style={{ backgroundColor: palette.primary }}>{assistantInitial}</span><span className="max-w-[74%] bg-white/90 px-2 py-1.5 text-slate-600 shadow-sm" style={{ borderRadius: miniPreviewRadius(appearance.bubbleRadius) }}>现在的视觉更有辨识度。</span></div><div className="flex items-end justify-end gap-1.5"><span className="max-w-[70%] px-2 py-1.5 text-white shadow-sm" style={{ borderRadius: miniPreviewRadius(appearance.bubbleRadius), backgroundColor: palette.primary }}>这样一眼就能看出来。</span><span className="grid size-4 shrink-0 place-items-center rounded-full bg-slate-700 text-[7px] font-bold text-white">{userInitial}</span></div></div>
+      <div className="absolute inset-x-2.5 bottom-2 flex items-center justify-between rounded-lg border border-white/80 bg-white/72 px-2 py-1 text-[8px] font-semibold text-slate-500 shadow-sm"><span className="flex items-center gap-1"><i className="size-1.5 rounded-full" style={{ backgroundColor: palette.primary }} />{textureName}背景</span><span>{radiusName}气泡</span><span>{appearance.fontScale === "small" ? "小字" : appearance.fontScale === "large" ? "大字" : "标准字"}</span></div>
+    </div>
   </div>;
 }
 
@@ -779,7 +814,7 @@ export default function Home() {
         <div className="mb-2 rounded-xl bg-white p-2 shadow-sm">
           <div className="mb-1 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span className="flex items-center gap-1"><Palette className="size-3" />{activeAI?.name ?? "当前 AI"} 的主题</span><button onClick={() => updateActiveAppearance(DEFAULT_AI_APPEARANCE)} className="text-sky-700 hover:underline">恢复默认</button></div>
           <div className="flex items-center justify-between gap-1">{(["sky", "violet", "rose", "emerald", "amber"] as const).map(color => <button key={color} onClick={() => updateActiveAppearance({ accent: color })} className={`grid size-6 place-items-center rounded-full ${accent === color ? "ring-2 ring-slate-500 ring-offset-2" : ""}`} aria-label={`选择${color}主题色`}><span className={`size-4 rounded-full bg-[var(--accent-${color})]`} /></button>)}</div>
-          <div className="mt-2 overflow-hidden rounded-lg bg-[var(--accent)] p-2 text-[10px] text-[var(--accent-foreground)]" aria-label="当前配色预览" style={currentAppearance.backgroundImage ? { backgroundImage: `linear-gradient(rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.62)), url("${currentAppearance.backgroundImage}")`, backgroundPosition: `${currentAppearance.backgroundPositionX}% ${currentAppearance.backgroundPositionY}%`, backgroundRepeat: "no-repeat", backgroundSize: `${currentAppearance.backgroundScale}%` } : undefined}><div className="flex items-center justify-between"><span>当前主题预览</span><span className="rounded-md bg-[var(--primary)] px-2 py-1 text-[var(--primary-foreground)]">发送</span></div><span className="chat-bubble mt-1 block bg-white/75 px-2 py-1 text-slate-700">这是一条消息气泡</span></div>
+          <ThemeAppearancePreview appearance={currentAppearance} assistantName={activeAI?.name ?? "当前 AI"} userName={userProfile.name} />
           <div className="mb-1 mt-3 text-[10px] font-bold tracking-[0.1em] text-slate-400">一键主题方案</div>
           <div className="grid grid-cols-5 gap-1">{BUILTIN_AI_THEMES.map(theme => <button key={theme.id} onClick={() => applyBuiltInTheme(theme)} className="group rounded-lg px-1 pb-1 pt-1 text-center hover:bg-slate-100" aria-label={`应用${theme.name}主题与匹配滤镜`} title={`${theme.name}：${theme.note}，含匹配背景滤镜`}><span className="relative mx-auto block h-8 w-full overflow-hidden rounded-md ring-1 ring-black/5 transition-transform group-hover:scale-105" style={{ backgroundImage: "radial-gradient(circle at 72% 26%, rgb(255 245 214 / 0.95) 0 13%, transparent 14%), linear-gradient(135deg, rgb(244 202 142) 0%, rgb(106 157 191) 52%, rgb(30 41 59) 100%)", filter: `brightness(${theme.appearance.backgroundBrightness ?? 100}%) contrast(${theme.appearance.backgroundContrast ?? 100}%) saturate(${theme.appearance.backgroundSaturation ?? 100}%)` }}><span className="absolute inset-0" style={{ backgroundImage: `linear-gradient(${backgroundTemperatureOverlay(theme.appearance.backgroundTemperature)}, ${backgroundTemperatureOverlay(theme.appearance.backgroundTemperature)})`, mixBlendMode: "color" }} />{(theme.appearance.backgroundVignette ?? 0) > 0 && <span className="absolute inset-0" style={{ backgroundImage: backgroundVignetteOverlay(theme.appearance.backgroundVignette) }} />}{(theme.appearance.backgroundGrain ?? 0) > 0 && <span className="absolute inset-0 mix-blend-soft-light" style={{ backgroundImage: BACKGROUND_GRAIN_TEXTURE, opacity: (theme.appearance.backgroundGrain ?? 0) / 140 }} />}</span><span className="mt-1 block truncate text-[9px] text-slate-500">{theme.name}</span></button>)}</div>
           <div className="mb-1 mt-3 flex items-center justify-between text-[10px] font-bold tracking-[0.1em] text-slate-400"><span>气泡圆角</span><span>当前：{radiusOptions.find(option => option.value === bubbleRadius)?.label}</span></div>
