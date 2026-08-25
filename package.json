@@ -22,6 +22,8 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "docx-preview": "^0.4.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.453.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.1",

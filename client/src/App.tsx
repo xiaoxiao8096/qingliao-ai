@@ -4,12 +4,14 @@ import { Route, Router as WouterRouter, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AIManager from "./pages/AIManager";
 import Home from "./pages/Home";
+import Library from "./pages/Library";
 import NotFound from "./pages/NotFound";
 import Profile from "./pages/Profile";
+import Studio from "./pages/Studio";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 function AppRoutes() {
-  return <Switch><Route path="/" component={Home} /><Route path="/ais" component={AIManager} /><Route path="/settings" component={AIManager} /><Route path="/profile" component={Profile} /><Route path="/404" component={NotFound} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Home} /><Route path="/library" component={Library} /><Route path="/create" component={Studio} /><Route path="/ais" component={AIManager} /><Route path="/settings" component={AIManager} /><Route path="/profile" component={Profile} /><Route path="/404" component={NotFound} /><Route component={NotFound} /></Switch>;
 }
 
 function App() {

@@ -66,6 +66,16 @@ describe("local multi-AI profiles", () => {
     expect(getAIProfiles().find(profile => profile.id === "second-ai")?.appearance).toMatchObject(second.appearance);
   });
 
+  it("keeps multimodal endpoint overrides on the matching local AI profile", () => {
+    const first = { ...getAIProfiles()[0], media: { image: { endpoint: "https://images.example.com/v1/generate", model: "image-local" } } };
+    const second = { ...createAIProfile(), id: "second-ai", media: { speech: { endpoint: "https://audio.example.com/v1/speech", model: "voice-local", voice: "nora" } } };
+    saveAIProfiles([first, second]);
+
+    expect(getAIProfiles().find(profile => profile.id === first.id)?.media?.image?.model).toBe("image-local");
+    expect(getAIProfiles().find(profile => profile.id === "second-ai")?.media?.speech).toMatchObject({ model: "voice-local", voice: "nora" });
+    expect(getAIProfiles().find(profile => profile.id === first.id)?.media?.speech).toBeUndefined();
+  });
+
   it("keeps custom chat backgrounds isolated with each AI appearance", () => {
     const initial = getAIProfiles()[0];
     const first = { ...initial, appearance: { accent: "rose" as const, fontScale: "medium" as const, bubbleRadius: "rounded" as const, chatTexture: "dots" as const, backgroundImage: "data:image/jpeg;base64,first-background" } };

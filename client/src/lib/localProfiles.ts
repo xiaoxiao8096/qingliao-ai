@@ -165,6 +165,8 @@ export type LocalAIProfile = LocalModelSettings & {
   welcome: string;
   /** 该 AI 专属外观；旧档案缺省时沿用默认值 */
   appearance?: AIAppearance;
+  /** 多模态端点仅保存在当前浏览器，可独立覆盖默认 OpenAI 兼容路径。 */
+  media?: Partial<Record<"image" | "speech" | "music" | "video", { endpoint?: string; model?: string; voice?: string }>>;
   createdAt: number;
   updatedAt: number;
 };
