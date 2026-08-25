@@ -10,6 +10,18 @@ const JSON_MEDIA = "application/json";
 const DEFAULT_VIDEO_POLL_LIMIT = 90;
 const DEFAULT_VIDEO_POLL_DELAY = 2_000;
 
+export type VideoTaskUpdate = {
+  stage: "submitting" | "queued" | "processing" | "downloading" | "completed" | "cancelled";
+  progress: number;
+  taskId?: string;
+  message: string;
+};
+
+export type MediaGenerationOptions = {
+  signal?: AbortSignal;
+  onVideoTaskUpdate?: (update: VideoTaskUpdate) => void;
+};
+
 export function defaultMediaEndpoint(baseUrl: string, capability: EndpointCapability) {
   const normalized = baseUrl.trim().replace(/\/$/, "").replace(/\/chat\/completions$/, "");
   if (!normalized) return "";
@@ -144,7 +156,24 @@ function isDone(status: string) { return ["completed", "succeeded", "success", "
 function isFailed(status: string) { return ["failed", "error", "cancelled", "canceled", "expired"].includes(status); }
 function sleep(milliseconds: number) { return new Promise(resolve => window.setTimeout(resolve, milliseconds)); }
 
-async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointCapability, endpoint: string, startResponse: Response) {
+export function videoTaskProgress(payload: unknown, status: string, attempt: number) {
+  const reported = ["progress", "data.progress", "result.progress", "percentage", "data.percentage"].map(path => valueAtPath(payload, path)).find(value => typeof value === "number" || typeof value === "string");
+  const number = typeof reported === "number" ? reported : Number(reported);
+  if (Number.isFinite(number)) return Math.max(8, Math.min(96, number <= 1 ? Math.round(number * 100) : Math.round(number)));
+  if (isDone(status)) return 96;
+  if (status.includes("process") || status.includes("run")) return Math.min(88, 42 + attempt * 3);
+  return Math.min(38, 18 + attempt * 2);
+}
+
+function abortError() {
+  return new DOMException("已停止本机等待生成结果。", "AbortError");
+}
+
+function updateVideo(options: MediaGenerationOptions | undefined, update: VideoTaskUpdate) {
+  options?.onVideoTaskUpdate?.(update);
+}
+
+async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointCapability, endpoint: string, startResponse: Response, options?: MediaGenerationOptions) {
   const config = configFor(profile, capability);
   const type = startResponse.headers.get("content-type") || "";
   if (!type.includes(JSON_MEDIA)) return responseToBlob(startResponse, config, capability);
@@ -156,25 +185,44 @@ async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointC
   const pollEndpoint = config.pollEndpoint?.trim() || `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(id)}`;
   const contentEndpoint = config.contentEndpoint?.trim() || `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(id)}/content`;
   let status = statusOf(payload);
+  updateVideo(options, { stage: "queued", progress: videoTaskProgress(payload, status, 0), taskId: id, message: status ? `任务${status}` : "任务已创建，等待服务商处理" });
   for (let attempt = 0; attempt < DEFAULT_VIDEO_POLL_LIMIT && !isDone(status); attempt += 1) {
+    if (options?.signal?.aborted) throw abortError();
     if (isFailed(status)) throw new Error(`生成任务失败：${messageFromPayload(payload)}`);
     await sleep(DEFAULT_VIDEO_POLL_DELAY);
+    if (options?.signal?.aborted) throw abortError();
     let response: Response;
-    try { response = await fetch(renderEndpoint(pollEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` } }); } catch { throw new Error("浏览器无法查询生成进度。请检查网络、HTTPS 和上游 CORS 配置。"); }
+    try { response = await fetch(renderEndpoint(pollEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` }, signal: options?.signal }); } catch (error) { if (options?.signal?.aborted) throw abortError(); throw new Error("浏览器无法查询生成进度。请检查网络、HTTPS 和上游 CORS 配置。"); }
     if (!response.ok) throw new Error(`查询生成进度失败（${response.status}）。`);
     payload = await response.json().catch(() => null);
     const result = await blobFromPayload(payload, config, capability);
     if (result) return result;
     status = statusOf(payload);
+    updateVideo(options, { stage: isDone(status) ? "downloading" : status.includes("process") || status.includes("run") ? "processing" : "queued", progress: videoTaskProgress(payload, status, attempt + 1), taskId: id, message: isDone(status) ? "生成完成，正在下载成品" : status ? `服务商状态：${status}` : "正在等待服务商处理" });
   }
   if (!isDone(status)) throw new Error("生成仍在排队或处理中。请保持页面打开后稍后重试；纯静态版本无法在关闭页面后继续代管任务。");
+  if (options?.signal?.aborted) throw abortError();
+  updateVideo(options, { stage: "downloading", progress: 96, taskId: id, message: "生成完成，正在下载成品" });
   let contentResponse: Response;
-  try { contentResponse = await fetch(renderEndpoint(contentEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` } }); } catch { throw new Error("生成已完成，但浏览器无法下载结果文件。请检查内容端点和 CORS 配置。"); }
+  try { contentResponse = await fetch(renderEndpoint(contentEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` }, signal: options?.signal }); } catch { if (options?.signal?.aborted) throw abortError(); throw new Error("生成已完成，但浏览器无法下载结果文件。请检查内容端点和 CORS 配置。"); }
   if (!contentResponse.ok) throw new Error(`下载生成结果失败（${contentResponse.status}）。`);
   return contentResponse.blob();
 }
 
-export async function generateAndStoreMedia(profile: LocalAIProfile, capability: EndpointCapability, prompt: string): Promise<LocalAsset> {
+export async function cancelRemoteVideoTask(profile: LocalAIProfile, taskId: string) {
+  const endpoint = profile.media?.video?.cancelEndpoint?.trim();
+  if (!endpoint) return false;
+  let response: Response;
+  try {
+    response = await fetch(renderEndpoint(endpoint, taskId), { method: "POST", headers: { authorization: `Bearer ${profile.apiKey.trim()}` } });
+  } catch {
+    throw new Error("浏览器无法通知服务商取消任务。已停止本机等待，请稍后到服务商控制台确认。\n");
+  }
+  if (!response.ok) throw new Error(`服务商取消任务失败（${response.status}）。已停止本机等待。`);
+  return true;
+}
+
+export async function generateAndStoreMedia(profile: LocalAIProfile, capability: EndpointCapability, prompt: string, options?: MediaGenerationOptions): Promise<LocalAsset> {
   const endpoint = mediaEndpointFor(profile, capability);
   const model = mediaModelFor(profile, capability);
   if (!endpoint || !profile.apiKey.trim() || !model) throw new Error("请先为当前 AI 填写 API Key、模型和对应的多模态端点。");
@@ -182,20 +230,23 @@ export async function generateAndStoreMedia(profile: LocalAIProfile, capability:
   const payload = buildMediaRequestPayload(profile, capability, prompt);
   const format = config.requestFormat ?? defaultMediaRequestFormat(capability);
   const request = formatRequest(payload, format);
+  if (capability === "video") updateVideo(options, { stage: "submitting", progress: 8, message: "正在创建视频任务" });
   let response: Response;
   try {
-    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${profile.apiKey.trim()}` }, body: request.body });
+    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${profile.apiKey.trim()}` }, body: request.body, signal: options?.signal });
   } catch {
+    if (options?.signal?.aborted) throw abortError();
     throw new Error("浏览器无法访问该多模态端点。请检查 HTTPS、网络以及上游 CORS 配置。");
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(`生成失败（${response.status}）：${messageFromPayload(payload)}`);
   }
-  const blob = capability === "video" || config.pollEndpoint?.trim() ? await waitForAsyncResult(profile, capability, endpoint, response) : await responseToBlob(response, config, capability);
+  const blob = capability === "video" || config.pollEndpoint?.trim() ? await waitForAsyncResult(profile, capability, endpoint, response, options) : await responseToBlob(response, config, capability);
   const name = fileNameFor(capability, blob.type);
   const category: Record<EndpointCapability, string> = { image: "AI 图片", speech: "AI 语音", music: "AI 音乐", video: "AI 视频" };
-  return saveLocalAsset(Object.assign(blob, { name }), { name, category: category[capability], source: "generated" });
+  if (capability === "video") updateVideo(options, { stage: "completed", progress: 100, message: "视频已生成并保存到本机" });
+  return saveLocalAsset(Object.assign(blob, { name }), { name, category: category[capability], source: "generated", generation: { capability, model, prompt, endpoint, parameters: payload, providerTemplateId: config.providerTemplateId } });
 }
 
 export async function generateAndStoreDocument(profile: LocalAIProfile, prompt: string, format: "markdown" | "html" | "text"): Promise<LocalAsset> {
@@ -212,7 +263,7 @@ export async function generateAndStoreDocument(profile: LocalAIProfile, prompt: 
   const extension = format === "markdown" ? "md" : format === "html" ? "html" : "txt";
   const blob = new Blob([content], { type: format === "html" ? "text/html" : format === "markdown" ? "text/markdown" : "text/plain" });
   const name = `ai-document-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.${extension}`;
-  return saveLocalAsset(Object.assign(blob, { name }), { name, category: "AI 文档", source: "generated" });
+  return saveLocalAsset(Object.assign(blob, { name }), { name, category: "AI 文档", source: "generated", generation: { capability: "document", model: profile.model.trim(), prompt, endpoint: modelEndpoint(profile.baseUrl), parameters: { format, stream: false } } });
 }
 
 export function capabilityLabel(capability: MediaCapability) {

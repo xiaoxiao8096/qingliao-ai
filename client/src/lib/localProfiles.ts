@@ -182,6 +182,10 @@ export type LocalAIProfile = LocalModelSettings & {
     pollEndpoint?: string;
     /** 异步任务完成后的二进制下载端点，可使用 {{id}} 占位符。 */
     contentEndpoint?: string;
+    /** 服务商模板标识，仅用于当前浏览器显示与再次编辑，不包含任何密钥。 */
+    providerTemplateId?: string;
+    /** 异步任务取消端点，可使用 {{id}} 占位符。 */
+    cancelEndpoint?: string;
   }>>;
   createdAt: number;
   updatedAt: number;

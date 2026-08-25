@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMediaRequestPayload, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind } from "./localMedia";
+import { buildMediaRequestPayload, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, videoTaskProgress } from "./localMedia";
 
 describe("local media endpoint helpers", () => {
   it("derives OpenAI-compatible media paths from a text API base URL", () => {
@@ -22,5 +22,11 @@ describe("local media endpoint helpers", () => {
     expect(capabilityLabel("music")).toBe("音乐");
     expect(generatedAssetKind("video")).toBe("video");
     expect(generatedAssetKind("document")).toBe("markdown");
+  });
+
+  it("derives safe visible progress from provider status payloads", () => {
+    expect(videoTaskProgress({ data: { progress: 0.46 } }, "processing", 3)).toBe(46);
+    expect(videoTaskProgress({}, "queued", 2)).toBeGreaterThanOrEqual(18);
+    expect(videoTaskProgress({}, "completed", 8)).toBe(96);
   });
 });

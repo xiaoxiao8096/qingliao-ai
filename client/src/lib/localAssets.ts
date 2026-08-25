@@ -1,6 +1,16 @@
 export type AssetKind = "image" | "audio" | "video" | "html" | "markdown" | "pdf" | "docx" | "pptx" | "text" | "other";
 export type AssetSource = "import" | "generated";
 
+export type AssetGenerationInfo = {
+  capability: "document" | "image" | "speech" | "music" | "video";
+  model: string;
+  prompt: string;
+  endpoint: string;
+  parameters: Record<string, unknown>;
+  providerTemplateId?: string;
+  generatedAt: number;
+};
+
 export type LocalAsset = {
   id: string;
   name: string;
@@ -9,6 +19,7 @@ export type LocalAsset = {
   size: number;
   category: string;
   source: AssetSource;
+  generation?: AssetGenerationInfo;
   createdAt: number;
   updatedAt: number;
 };
@@ -108,7 +119,25 @@ export function formatAssetSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
-export async function saveLocalAsset(file: Blob & { name?: string; type?: string }, options: { name?: string; category?: string; source?: AssetSource } = {}): Promise<LocalAsset> {
+export function normalizeGenerationInfo(value: Omit<AssetGenerationInfo, "generatedAt"> | undefined, now: number) {
+  if (!value) return undefined;
+  let parameters: Record<string, unknown> = {};
+  try {
+    const serialized = JSON.stringify(value.parameters ?? {});
+    if (serialized.length <= 16_000) parameters = JSON.parse(serialized) as Record<string, unknown>;
+  } catch { /* 忽略无法序列化的自定义参数，确保文件仍可保存。 */ }
+  return {
+    capability: value.capability,
+    model: value.model.trim().slice(0, 160),
+    prompt: value.prompt.trim().slice(0, 8_000),
+    endpoint: value.endpoint.trim().slice(0, 600),
+    parameters,
+    providerTemplateId: value.providerTemplateId?.trim().slice(0, 80) || undefined,
+    generatedAt: now,
+  } satisfies AssetGenerationInfo;
+}
+
+export async function saveLocalAsset(file: Blob & { name?: string; type?: string }, options: { name?: string; category?: string; source?: AssetSource; generation?: Omit<AssetGenerationInfo, "generatedAt"> } = {}): Promise<LocalAsset> {
   if (!file.size) throw new Error("不能保存空文件。");
   if (file.size > MAX_LOCAL_ASSET_BYTES) throw new Error("单个文件不能超过 100MB，以保护当前浏览器的本机存储空间。");
   const name = (options.name ?? file.name ?? "未命名素材").trim().slice(0, 120) || "未命名素材";
@@ -116,7 +145,7 @@ export async function saveLocalAsset(file: Blob & { name?: string; type?: string
   const kind = classifyAsset(name, mimeType);
   const now = Date.now();
   const record: StoredAsset = {
-    id: newId(), name, kind, mimeType, size: file.size, category: normalizeAssetCategory(options.category ?? "", kind), source: options.source ?? "import", createdAt: now, updatedAt: now, blob: file,
+    id: newId(), name, kind, mimeType, size: file.size, category: normalizeAssetCategory(options.category ?? "", kind), source: options.source ?? "import", generation: normalizeGenerationInfo(options.generation, now), createdAt: now, updatedAt: now, blob: file,
   };
   await withStore("readwrite", store => store.add(record));
   return assetWithoutBlob(record);
