@@ -277,6 +277,40 @@ export async function generateAndStoreDocument(profile: LocalAIProfile, prompt: 
   return saveLocalAsset(Object.assign(blob, { name }), { name, category: "AI 文档", source: "generated", generation: { capability: "document", model: profile.model.trim(), prompt, endpoint: modelEndpoint(profile.baseUrl), parameters: { format, stream: false } } });
 }
 
+export type MediaTestResult = { ok: boolean; message: string; endpoint?: string };
+
+export async function testMediaCapability(profile: LocalAIProfile, capability: EndpointCapability, prompt: string): Promise<MediaTestResult> {
+  const endpoint = mediaEndpointFor(profile, capability);
+  const model = mediaModelFor(profile, capability);
+  if (!endpoint || !profile.apiKey.trim() || !model) {
+    return { ok: false, message: "请先填写 API Key、模型和对应的多模态端点。", endpoint };
+  }
+  const config = configFor(profile, capability);
+  const payload = buildMediaRequestPayload(profile, capability, prompt);
+  const format = config.requestFormat ?? defaultMediaRequestFormat(capability);
+  const request = formatRequest(payload, format);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${profile.apiKey.trim()}` }, body: request.body });
+  } catch {
+    return { ok: false, message: mediaNetworkFailureMessage(profile, capability, endpoint), endpoint };
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    return { ok: false, message: `生成失败（${response.status}）：${messageFromPayload(data)}`, endpoint };
+  }
+  const type = response.headers.get("content-type") || "";
+  if (!type.includes(JSON_MEDIA)) {
+    return { ok: true, message: "端点已返回文件，生成配置可用。", endpoint };
+  }
+  const data = await response.json().catch(() => null);
+  const direct = await blobFromPayload(data, config, capability).catch(() => null);
+  if (direct) return { ok: true, message: "成功取到生成结果，配置可用。", endpoint };
+  const taskId = idOf(data);
+  if (taskId) return { ok: true, message: "端点已创建异步任务，配置可用（视频类正常）。", endpoint };
+  return { ok: false, message: "端点返回 200，但没找到结果字段；请在高级配置填写正确的结果路径。", endpoint };
+}
+
 export function capabilityLabel(capability: MediaCapability) {
   const labels: Record<MediaCapability, string> = { document: "文档", image: "图片", speech: "语音", music: "音乐", video: "视频" };
   return labels[capability];
