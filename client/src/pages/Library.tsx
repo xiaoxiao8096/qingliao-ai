@@ -66,12 +66,16 @@ function AssetPreview({ asset, objectUrl }: { asset: LoadedAsset; objectUrl: str
   const [officeError, setOfficeError] = useState("");
   const [pptSlides, setPptSlides] = useState<string[]>([]);
   const docxTarget = useRef<HTMLDivElement>(null);
+  const pptCanvas = useRef<HTMLCanvasElement>(null);
+  const pptViewer = useRef<import("pptxviewjs").PPTXViewer | null>(null);
+  const [pptPosition, setPptPosition] = useState({ current: 0, total: 0 });
 
   useEffect(() => {
     let disposed = false;
     setText("");
     setPptSlides([]);
     setOfficeError("");
+    setPptPosition({ current: 0, total: 0 });
     if (!["html", "markdown", "text"].includes(asset.kind)) return;
     setLoadingText(true);
     asset.blob.text().then(value => { if (!disposed) setText(value); }).catch(() => { if (!disposed) setOfficeError("无法读取此文件的文本内容。"); }).finally(() => { if (!disposed) setLoadingText(false); });
@@ -103,9 +107,36 @@ function AssetPreview({ asset, objectUrl }: { asset: LoadedAsset; objectUrl: str
         return Array.from(document.querySelectorAll("t")).map(node => node.textContent?.trim() ?? "").filter(Boolean).join("\n");
       }));
       if (!disposed) setPptSlides(slides);
-    }).catch(() => { if (!disposed) setOfficeError("PPTX 内容提取失败；你仍可下载原文件。"); }).finally(() => { if (!disposed) setLoadingText(false); });
+    }).catch(() => { if (!disposed) setPptSlides([]); }).finally(() => { if (!disposed) setLoadingText(false); });
     return () => { disposed = true; };
   }, [asset]);
+
+  useEffect(() => {
+    let disposed = false;
+    if (asset.kind !== "pptx" || asset.name.toLocaleLowerCase().endsWith(".ppt") || !pptCanvas.current) return;
+    setLoadingText(true);
+    import("pptxviewjs").then(async ({ PPTXViewer }) => {
+      if (disposed || !pptCanvas.current) return;
+      const viewer = new PPTXViewer({ canvas: pptCanvas.current, slideSizeMode: "fit", backgroundColor: "#ffffff" });
+      pptViewer.current = viewer;
+      const file = new globalThis.File([asset.blob], asset.name, { type: asset.mimeType || "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+      await viewer.loadFile(file);
+      if (disposed) return;
+      await viewer.render(pptCanvas.current, { quality: "high" });
+      if (!disposed) setPptPosition({ current: viewer.getCurrentSlideIndex(), total: viewer.getSlideCount() });
+    }).catch(error => { console.error("PPTX visual preview failed", error); if (!disposed) setOfficeError("PPTX 视觉预览未能加载；已保留文字提取和原文件下载。"); }).finally(() => { if (!disposed) setLoadingText(false); });
+    return () => { disposed = true; pptViewer.current?.destroy(); pptViewer.current = null; };
+  }, [asset]);
+
+  const navigatePpt = async (direction: "previous" | "next") => {
+    const viewer = pptViewer.current;
+    if (!viewer || !pptCanvas.current) return;
+    try {
+      if (direction === "previous") await viewer.previousSlide(pptCanvas.current);
+      else await viewer.nextSlide(pptCanvas.current);
+      setPptPosition({ current: viewer.getCurrentSlideIndex(), total: viewer.getSlideCount() });
+    } catch { setOfficeError("幻灯片切换失败；你仍可下载原文件查看。 "); }
+  };
 
   if (asset.kind === "image") return <img src={objectUrl} alt={asset.name} className="max-h-[60vh] w-full rounded-xl object-contain" />;
   if (asset.kind === "audio") return <div className="grid min-h-64 place-items-center rounded-2xl bg-gradient-to-br from-rose-50 to-violet-50 p-6"><div className="text-center"><span className="mx-auto grid size-16 place-items-center rounded-2xl bg-rose-500 text-white shadow-lg"><Music2 className="size-8" /></span><p className="mt-4 font-semibold text-slate-700">{asset.name}</p><audio controls src={objectUrl} className="mt-4 max-w-full" /></div></div>;
@@ -113,8 +144,8 @@ function AssetPreview({ asset, objectUrl }: { asset: LoadedAsset; objectUrl: str
   if (asset.kind === "pdf") return <iframe src={objectUrl} title={`${asset.name} 预览`} className="h-[60vh] w-full rounded-xl border border-slate-200 bg-white" />;
   if (asset.kind === "html") return <iframe srcDoc={text} sandbox="" title={`${asset.name} 安全预览`} className="h-[60vh] w-full rounded-xl border border-slate-200 bg-white" />;
   if (asset.kind === "markdown") return <div className="min-h-[26rem] rounded-xl border border-slate-200 bg-white p-4 text-sm leading-7 text-slate-700"><Streamdown>{text}</Streamdown></div>;
-  if (asset.kind === "docx") return <div className="min-h-[26rem] overflow-auto rounded-xl border border-slate-200 bg-white p-4 text-slate-700"><div ref={docxTarget} className="qingliao-docx-preview" /></div>;
-  if (asset.kind === "pptx") return <div className="space-y-3">{pptSlides.map((slide, index) => <section key={index} className="min-h-40 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-bold tracking-[0.12em] text-slate-400">幻灯片 {index + 1}</p><pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-7 text-slate-700">{slide || "（该页没有可提取的文字）"}</pre></section>)}{!loadingText && pptSlides.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">未找到可阅读的幻灯片文字；你仍可下载原文件查看完整排版。</p>}</div>;
+  if (asset.kind === "docx") return asset.name.toLocaleLowerCase().endsWith(".doc") ? <div className="grid min-h-64 place-items-center rounded-2xl bg-slate-50 p-6 text-center"><FileText className="size-10 text-slate-300" /><p className="mt-3 text-sm font-semibold text-slate-600">旧版 .doc 仅支持下载查看</p><p className="mt-1 max-w-sm text-xs leading-5 text-slate-400">为保持完全本机、无上传，当前仅在浏览器内渲染 DOCX；请将旧版 Word 另存为 DOCX 后再预览。</p></div> : <div className="min-h-[26rem] overflow-auto rounded-xl border border-slate-200 bg-white p-4 text-slate-700"><div ref={docxTarget} className="qingliao-docx-preview" /></div>;
+  if (asset.kind === "pptx") return asset.name.toLocaleLowerCase().endsWith(".ppt") ? <div className="grid min-h-64 place-items-center rounded-2xl bg-slate-50 p-6 text-center"><Presentation className="size-10 text-slate-300" /><p className="mt-3 text-sm font-semibold text-slate-600">旧版 .ppt 仅支持下载查看</p><p className="mt-1 max-w-sm text-xs leading-5 text-slate-400">为保持完全本机、无上传，当前在浏览器内渲染 PPTX；请将旧版 PowerPoint 另存为 PPTX 后再预览。</p></div> : <div className="space-y-3"><div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-100"><canvas ref={pptCanvas} className="block h-auto w-full bg-white" aria-label={`${asset.name} 幻灯片视觉预览`} /></div>{pptPosition.total > 1 && <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"><button type="button" onClick={() => void navigatePpt("previous")} disabled={pptPosition.current <= 0} className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-white disabled:opacity-40">上一页</button><span className="text-xs text-slate-500">第 {pptPosition.current + 1} / {pptPosition.total} 页</span><button type="button" onClick={() => void navigatePpt("next")} disabled={pptPosition.current >= pptPosition.total - 1} className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-white disabled:opacity-40">下一页</button></div>}{officeError && <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">{officeError}</p>}{pptSlides.length > 0 && <details className="rounded-xl border border-slate-200 bg-white p-3"><summary className="cursor-pointer text-xs font-semibold text-slate-600">查看可提取文字</summary><div className="mt-3 space-y-2">{pptSlides.map((slide, index) => <section key={index} className="rounded-lg bg-slate-50 p-2.5"><p className="text-[10px] font-bold tracking-[0.12em] text-slate-400">幻灯片 {index + 1}</p><pre className="mt-1.5 whitespace-pre-wrap font-sans text-xs leading-5 text-slate-600">{slide || "（该页没有可提取的文字）"}</pre></section>)}</div></details>}{!loadingText && pptPosition.total === 0 && pptSlides.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">未找到可阅读的幻灯片内容；你仍可下载原文件查看。</p>}</div>;
   if (asset.kind === "text") return <pre className="max-h-[60vh] overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">{text}</pre>;
   return <div className="grid min-h-64 place-items-center rounded-2xl bg-slate-50 p-6 text-center"><File className="size-10 text-slate-300" /><p className="mt-3 text-sm text-slate-500">此文件暂不能站内预览。</p><p className="mt-1 text-xs text-slate-400">可下载原文件，在本机应用中打开。</p></div>;
 }

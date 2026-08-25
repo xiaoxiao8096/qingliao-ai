@@ -24,7 +24,7 @@ const extensionKind: Record<string, AssetKind> = {
   png: "image", jpg: "image", jpeg: "image", webp: "image", gif: "image", avif: "image", svg: "image",
   mp3: "audio", wav: "audio", m4a: "audio", ogg: "audio", aac: "audio", flac: "audio",
   mp4: "video", webm: "video", mov: "video", m4v: "video",
-  html: "html", htm: "html", md: "markdown", markdown: "markdown", pdf: "pdf", docx: "docx", pptx: "pptx",
+  html: "html", htm: "html", md: "markdown", markdown: "markdown", pdf: "pdf", doc: "docx", docx: "docx", ppt: "pptx", pptx: "pptx",
   txt: "text", json: "text", csv: "text", js: "text", ts: "text", tsx: "text", css: "text", xml: "text", yml: "text", yaml: "text",
 };
 

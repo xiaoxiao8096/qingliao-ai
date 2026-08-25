@@ -8,7 +8,9 @@ describe("local asset classification", () => {
     expect(classifyAsset("clip.mp4", "video/mp4")).toBe("video");
     expect(classifyAsset("draft.md", "text/markdown")).toBe("markdown");
     expect(classifyAsset("slides.pptx")).toBe("pptx");
+    expect(classifyAsset("legacy-slides.ppt")).toBe("pptx");
     expect(classifyAsset("contract.docx")).toBe("docx");
+    expect(classifyAsset("legacy-contract.doc")).toBe("docx");
   });
 
   it("normalizes categories and readable storage metadata", () => {
