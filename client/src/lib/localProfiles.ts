@@ -166,7 +166,23 @@ export type LocalAIProfile = LocalModelSettings & {
   /** 该 AI 专属外观；旧档案缺省时沿用默认值 */
   appearance?: AIAppearance;
   /** 多模态端点仅保存在当前浏览器，可独立覆盖默认 OpenAI 兼容路径。 */
-  media?: Partial<Record<"image" | "speech" | "music" | "video", { endpoint?: string; model?: string; voice?: string }>>;
+  media?: Partial<Record<"image" | "speech" | "music" | "video", {
+    endpoint?: string;
+    model?: string;
+    voice?: string;
+    /** 自定义服务商的 JSON 请求体，可使用 {{model}}、{{prompt}}、{{voice}} 占位符。 */
+    requestTemplate?: string;
+    /** 请求体的发送方式；视频的默认方式为 multipart/form-data，其余为 JSON。 */
+    requestFormat?: "json" | "form";
+    /** 生成响应中指向结果 URL 或 Base64 的点路径，例如 data.0.url。 */
+    resultPath?: string;
+    /** 当服务以裸 Base64 返回时，用于归档与预览的 MIME，例如 audio/mpeg。 */
+    resultMimeType?: string;
+    /** 异步任务状态端点，可使用 {{id}} 占位符。 */
+    pollEndpoint?: string;
+    /** 异步任务完成后的二进制下载端点，可使用 {{id}} 占位符。 */
+    contentEndpoint?: string;
+  }>>;
   createdAt: number;
   updatedAt: number;
 };

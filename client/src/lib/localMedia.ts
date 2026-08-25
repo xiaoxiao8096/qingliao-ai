@@ -1,14 +1,19 @@
-import { modelEndpoint } from "./localChat";
 import type { LocalAIProfile } from "./localProfiles";
 import { saveLocalAsset, type AssetKind, type LocalAsset } from "./localAssets";
+import { modelEndpoint } from "./localChat";
 
 export type MediaCapability = "document" | "image" | "speech" | "music" | "video";
 export type EndpointCapability = Exclude<MediaCapability, "document">;
+type MediaConfig = NonNullable<NonNullable<LocalAIProfile["media"]>[EndpointCapability]>;
+
+const JSON_MEDIA = "application/json";
+const DEFAULT_VIDEO_POLL_LIMIT = 90;
+const DEFAULT_VIDEO_POLL_DELAY = 2_000;
 
 export function defaultMediaEndpoint(baseUrl: string, capability: EndpointCapability) {
   const normalized = baseUrl.trim().replace(/\/$/, "").replace(/\/chat\/completions$/, "");
   if (!normalized) return "";
-  const suffix: Record<EndpointCapability, string> = { image: "/images/generations", speech: "/audio/speech", music: "/audio/music", video: "/videos/generations" };
+  const suffix: Record<EndpointCapability, string> = { image: "/images/generations", speech: "/audio/speech", music: "/audio/music", video: "/videos" };
   return `${normalized}${suffix[capability]}`;
 }
 
@@ -18,6 +23,10 @@ export function mediaEndpointFor(profile: LocalAIProfile, capability: EndpointCa
 
 export function mediaModelFor(profile: LocalAIProfile, capability: EndpointCapability) {
   return profile.media?.[capability]?.model?.trim() || profile.model.trim();
+}
+
+export function defaultMediaRequestFormat(capability: EndpointCapability) {
+  return capability === "video" ? "form" : "json";
 }
 
 function messageFromPayload(payload: unknown) {
@@ -34,37 +43,148 @@ function fileNameFor(capability: MediaCapability, mimeType: string) {
   return `${label[capability]}-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.${extension}`;
 }
 
-async function responseToBlob(response: Response): Promise<Blob> {
-  const type = response.headers.get("content-type") || "";
-  if (!type.includes("application/json")) return response.blob();
-  const payload = await response.json().catch(() => null) as { data?: Array<{ b64_json?: string; url?: string }>; url?: string; output_url?: string } | null;
-  const candidate = payload?.data?.[0];
-  if (candidate?.b64_json) {
-    const decoded = atob(candidate.b64_json);
-    const bytes = Uint8Array.from(decoded, char => char.charCodeAt(0));
-    return new Blob([bytes], { type: "image/png" });
+function configFor(profile: LocalAIProfile, capability: EndpointCapability): MediaConfig {
+  return profile.media?.[capability] ?? {};
+}
+
+function interpolateTemplate(value: unknown, values: Record<string, string>): unknown {
+  if (typeof value === "string") return value.replace(/\{\{(model|prompt|voice|id)\}\}/g, (_match, key: string) => values[key] ?? "");
+  if (Array.isArray(value)) return value.map(item => interpolateTemplate(item, values));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, interpolateTemplate(item, values)]));
+  return value;
+}
+
+export function buildMediaRequestPayload(profile: LocalAIProfile, capability: EndpointCapability, prompt: string) {
+  const model = mediaModelFor(profile, capability);
+  const voice = profile.media?.speech?.voice?.trim() || "alloy";
+  const defaults: Record<EndpointCapability, Record<string, unknown>> = {
+    image: { model, prompt, size: "1024x1024", response_format: "b64_json" },
+    speech: { model, input: prompt, voice, response_format: "mp3" },
+    music: { model, prompt },
+    video: { model, prompt },
+  };
+  const template = configFor(profile, capability).requestTemplate?.trim();
+  if (!template) return defaults[capability];
+  let parsed: unknown;
+  try { parsed = JSON.parse(template); } catch { throw new Error("自定义请求 JSON 格式不正确。请检查括号、引号与逗号。"); }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("自定义请求 JSON 必须是对象，例如 {\"model\":\"{{model}}\",\"prompt\":\"{{prompt}}\"}。");
+  return interpolateTemplate(parsed, { model, prompt, voice, id: "" }) as Record<string, unknown>;
+}
+
+function valueAtPath(payload: unknown, path?: string) {
+  if (!path?.trim()) return undefined;
+  return path.trim().split(".").reduce<unknown>((current, key) => {
+    if (Array.isArray(current)) return /^\d+$/.test(key) ? current[Number(key)] : undefined;
+    if (current && typeof current === "object") return (current as Record<string, unknown>)[key];
+    return undefined;
+  }, payload);
+}
+
+function firstString(payload: unknown, paths: string[]) {
+  for (const path of paths) {
+    const value = valueAtPath(payload, path);
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
-  const url = candidate?.url || payload?.url || payload?.output_url;
-  if (url) {
-    const assetResponse = await fetch(url);
+  return "";
+}
+
+function decodeBase64(value: string, type = "application/octet-stream") {
+  const decoded = atob(value.replace(/^data:[^;]+;base64,/, ""));
+  const bytes = Uint8Array.from(decoded, char => char.charCodeAt(0));
+  return new Blob([bytes], { type: value.startsWith("data:") ? value.slice(5, value.indexOf(";")) : type });
+}
+
+function resultValue(payload: unknown, config: MediaConfig) {
+  const custom = valueAtPath(payload, config.resultPath);
+  if (typeof custom === "string" && custom.trim()) return custom.trim();
+  return firstString(payload, ["data.0.b64_json", "data.0.url", "data.0.b64", "url", "output_url", "output.url", "result.url", "video_url", "content_url", "audio_url"]);
+}
+
+async function blobFromPayload(payload: unknown, config: MediaConfig, capability: EndpointCapability): Promise<Blob | null> {
+  const value = resultValue(payload, config);
+  if (!value) return null;
+  if (/^(https?:)?\/\//i.test(value)) {
+    const assetResponse = await fetch(value);
     if (!assetResponse.ok) throw new Error(`生成文件下载失败（${assetResponse.status}）。请确认服务允许跨域访问。`);
     return assetResponse.blob();
   }
+  const defaultMime = capability === "image" ? "image/png" : capability === "speech" ? "audio/mpeg" : capability === "music" ? "audio/mpeg" : "video/mp4";
+  try { return decodeBase64(value, config.resultMimeType?.trim() || defaultMime); } catch { throw new Error("生成结果不是可下载链接或 Base64 文件内容。请在高级配置中填写正确的结果字段路径。"); }
+}
+
+async function responseToBlob(response: Response, config: MediaConfig, capability: EndpointCapability): Promise<Blob> {
+  const type = response.headers.get("content-type") || "";
+  if (!type.includes(JSON_MEDIA)) return response.blob();
+  const payload = await response.json().catch(() => null);
+  const blob = await blobFromPayload(payload, config, capability);
+  if (blob) return blob;
   throw new Error(messageFromPayload(payload));
+}
+
+function formatRequest(payload: Record<string, unknown>, format: "json" | "form"): { body: BodyInit; headers: HeadersInit } {
+  if (format === "json") return { body: JSON.stringify(payload), headers: { "content-type": JSON_MEDIA } };
+  const body = new FormData();
+  Object.entries(payload).forEach(([key, value]) => body.append(key, typeof value === "string" ? value : JSON.stringify(value)));
+  return { body, headers: {} };
+}
+
+function renderEndpoint(template: string, id: string) {
+  return template.replaceAll("{{id}}", encodeURIComponent(id));
+}
+
+function statusOf(payload: unknown) {
+  return firstString(payload, ["status", "data.status", "result.status"]).toLocaleLowerCase();
+}
+
+function idOf(payload: unknown) {
+  return firstString(payload, ["id", "data.id", "job_id", "data.job_id", "task_id", "data.task_id"]);
+}
+
+function isDone(status: string) { return ["completed", "succeeded", "success", "done"].includes(status); }
+function isFailed(status: string) { return ["failed", "error", "cancelled", "canceled", "expired"].includes(status); }
+function sleep(milliseconds: number) { return new Promise(resolve => window.setTimeout(resolve, milliseconds)); }
+
+async function waitForAsyncResult(profile: LocalAIProfile, capability: EndpointCapability, endpoint: string, startResponse: Response) {
+  const config = configFor(profile, capability);
+  const type = startResponse.headers.get("content-type") || "";
+  if (!type.includes(JSON_MEDIA)) return responseToBlob(startResponse, config, capability);
+  let payload = await startResponse.json().catch(() => null);
+  const direct = await blobFromPayload(payload, config, capability);
+  if (direct) return direct;
+  const id = idOf(payload);
+  if (!id) throw new Error("生成任务未返回结果文件或任务 ID。请检查端点响应，必要时在高级配置中填写结果字段路径。");
+  const pollEndpoint = config.pollEndpoint?.trim() || `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(id)}`;
+  const contentEndpoint = config.contentEndpoint?.trim() || `${endpoint.replace(/\/$/, "")}/${encodeURIComponent(id)}/content`;
+  let status = statusOf(payload);
+  for (let attempt = 0; attempt < DEFAULT_VIDEO_POLL_LIMIT && !isDone(status); attempt += 1) {
+    if (isFailed(status)) throw new Error(`生成任务失败：${messageFromPayload(payload)}`);
+    await sleep(DEFAULT_VIDEO_POLL_DELAY);
+    let response: Response;
+    try { response = await fetch(renderEndpoint(pollEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` } }); } catch { throw new Error("浏览器无法查询生成进度。请检查网络、HTTPS 和上游 CORS 配置。"); }
+    if (!response.ok) throw new Error(`查询生成进度失败（${response.status}）。`);
+    payload = await response.json().catch(() => null);
+    const result = await blobFromPayload(payload, config, capability);
+    if (result) return result;
+    status = statusOf(payload);
+  }
+  if (!isDone(status)) throw new Error("生成仍在排队或处理中。请保持页面打开后稍后重试；纯静态版本无法在关闭页面后继续代管任务。");
+  let contentResponse: Response;
+  try { contentResponse = await fetch(renderEndpoint(contentEndpoint, id), { headers: { authorization: `Bearer ${profile.apiKey.trim()}` } }); } catch { throw new Error("生成已完成，但浏览器无法下载结果文件。请检查内容端点和 CORS 配置。"); }
+  if (!contentResponse.ok) throw new Error(`下载生成结果失败（${contentResponse.status}）。`);
+  return contentResponse.blob();
 }
 
 export async function generateAndStoreMedia(profile: LocalAIProfile, capability: EndpointCapability, prompt: string): Promise<LocalAsset> {
   const endpoint = mediaEndpointFor(profile, capability);
   const model = mediaModelFor(profile, capability);
   if (!endpoint || !profile.apiKey.trim() || !model) throw new Error("请先为当前 AI 填写 API Key、模型和对应的多模态端点。");
-  const body = capability === "speech"
-    ? { model, input: prompt, voice: profile.media?.speech?.voice?.trim() || "alloy", response_format: "mp3" }
-    : capability === "image"
-      ? { model, prompt, size: "1024x1024", response_format: "b64_json" }
-      : { model, prompt };
+  const config = configFor(profile, capability);
+  const payload = buildMediaRequestPayload(profile, capability, prompt);
+  const format = config.requestFormat ?? defaultMediaRequestFormat(capability);
+  const request = formatRequest(payload, format);
   let response: Response;
   try {
-    response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${profile.apiKey.trim()}` }, body: JSON.stringify(body) });
+    response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, authorization: `Bearer ${profile.apiKey.trim()}` }, body: request.body });
   } catch {
     throw new Error("浏览器无法访问该多模态端点。请检查 HTTPS、网络以及上游 CORS 配置。");
   }
@@ -72,7 +192,7 @@ export async function generateAndStoreMedia(profile: LocalAIProfile, capability:
     const payload = await response.json().catch(() => null);
     throw new Error(`生成失败（${response.status}）：${messageFromPayload(payload)}`);
   }
-  const blob = await responseToBlob(response);
+  const blob = capability === "video" || config.pollEndpoint?.trim() ? await waitForAsyncResult(profile, capability, endpoint, response) : await responseToBlob(response, config, capability);
   const name = fileNameFor(capability, blob.type);
   const category: Record<EndpointCapability, string> = { image: "AI 图片", speech: "AI 语音", music: "AI 音乐", video: "AI 视频" };
   return saveLocalAsset(Object.assign(blob, { name }), { name, category: category[capability], source: "generated" });
@@ -83,7 +203,7 @@ export async function generateAndStoreDocument(profile: LocalAIProfile, prompt: 
   const instruction = format === "html" ? "请只输出可直接保存为 HTML 的完整源码，不要使用 Markdown 代码围栏。" : format === "markdown" ? "请只输出 Markdown 正文，不要使用代码围栏。" : "请只输出纯文本正文。";
   let response: Response;
   try {
-    response = await fetch(modelEndpoint(profile.baseUrl), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${profile.apiKey.trim()}` }, body: JSON.stringify({ model: profile.model.trim(), stream: false, messages: [{ role: "system", content: instruction }, { role: "user", content: prompt }] }) });
+    response = await fetch(modelEndpoint(profile.baseUrl), { method: "POST", headers: { "content-type": JSON_MEDIA, authorization: `Bearer ${profile.apiKey.trim()}` }, body: JSON.stringify({ model: profile.model.trim(), stream: false, messages: [{ role: "system", content: instruction }, { role: "user", content: prompt }] }) });
   } catch { throw new Error("浏览器无法访问文本生成端点。请检查 HTTPS、网络以及上游 CORS 配置。"); }
   const payload = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } | string } | null;
   if (!response.ok) throw new Error(`文档生成失败（${response.status}）：${messageFromPayload(payload)}`);

@@ -68,11 +68,12 @@ describe("local multi-AI profiles", () => {
 
   it("keeps multimodal endpoint overrides on the matching local AI profile", () => {
     const first = { ...getAIProfiles()[0], media: { image: { endpoint: "https://images.example.com/v1/generate", model: "image-local" } } };
-    const second = { ...createAIProfile(), id: "second-ai", media: { speech: { endpoint: "https://audio.example.com/v1/speech", model: "voice-local", voice: "nora" } } };
+    const second = { ...createAIProfile(), id: "second-ai", media: { speech: { endpoint: "https://audio.example.com/v1/speech", model: "voice-local", voice: "nora" }, video: { endpoint: "https://video.example.com/v1/videos", model: "video-local", pollEndpoint: "https://video.example.com/v1/videos/{{id}}", contentEndpoint: "https://video.example.com/v1/videos/{{id}}/content" } } };
     saveAIProfiles([first, second]);
 
     expect(getAIProfiles().find(profile => profile.id === first.id)?.media?.image?.model).toBe("image-local");
     expect(getAIProfiles().find(profile => profile.id === "second-ai")?.media?.speech).toMatchObject({ model: "voice-local", voice: "nora" });
+    expect(getAIProfiles().find(profile => profile.id === "second-ai")?.media?.video?.pollEndpoint).toContain("{{id}}");
     expect(getAIProfiles().find(profile => profile.id === first.id)?.media?.speech).toBeUndefined();
   });
 
