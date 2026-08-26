@@ -22,7 +22,7 @@ import {
   type LocalAIProfile,
 } from "@/lib/localProfiles";
 import { applyMediaProviderTemplate, mediaProviderTemplatesFor } from "@/lib/mediaProviderTemplates";
-import { mediaApiKeyFor, testMediaCapability, type EndpointCapability } from "@/lib/localMedia";
+import { checkMediaCors, mediaApiKeyFor, testMediaCapability, type EndpointCapability, type MediaCorsCheck } from "@/lib/localMedia";
 import {
   ArrowLeft,
   BookmarkPlus,
@@ -138,6 +138,8 @@ export default function AIManager() {
   const [testingMedia, setTestingMedia] = useState<Record<EndpointCapability, boolean>>({ image: false, speech: false, music: false, video: false });
   const [mediaTestState, setMediaTestState] = useState<Record<EndpointCapability, { kind: "loading" | "error" | "success"; text: string } | undefined>>({ image: undefined, speech: undefined, music: undefined, video: undefined });
   const [showMediaKey, setShowMediaKey] = useState<Record<EndpointCapability, boolean>>({ image: false, speech: false, music: false, video: false });
+  const [mediaCorsChecking, setMediaCorsChecking] = useState<EndpointCapability | null>(null);
+  const [mediaCorsFeedback, setMediaCorsFeedback] = useState<Partial<Record<EndpointCapability, MediaCorsCheck>>>({});
   const [presets, setPresets] = useState<AppearancePreset[]>(() => getAppearancePresets());
   const [presetName, setPresetName] = useState("");
   const avatarInput = useRef<HTMLInputElement>(null);
@@ -378,7 +380,18 @@ export default function AIManager() {
   function useAI(id: string) {
     setActiveAIId(id);
     setActiveId(id);
+    setEditingId(id);
     toast.success("已切换当前聊天 AI。");
+  }
+
+  async function testMediaCors(capability: EndpointCapability) {
+    setMediaCorsChecking(capability);
+    setMediaCorsFeedback(previous => ({ ...previous, [capability]: undefined }));
+    const result = await checkMediaCors(form, capability);
+    setMediaCorsChecking(null);
+    setMediaCorsFeedback(previous => ({ ...previous, [capability]: result }));
+    if (result.ok) toast.success(`${({ image: "图片", speech: "语音", music: "音乐", video: "视频" }[capability])}端点可跨域读取。`, { description: `HTTP ${result.status} · 未发送生成任务` });
+    else toast.error(result.message, { description: result.endpoint || "请先填写端点" });
   }
 
   if (!current) return null;
@@ -399,12 +412,11 @@ export default function AIManager() {
             </div>
             <div className="space-y-1">
               {profiles.map(profile => (
-                <div key={profile.id} className={`flex items-center gap-2 rounded-xl p-2 ${editingId === profile.id ? "bg-[#edf6fb]" : "hover:bg-slate-50"}`}>
-                  <button onClick={() => setEditingId(profile.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                    <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-[#dceefa] text-xs font-bold text-[#3f7698]">{profile.avatar ? <img src={profile.avatar} alt="" className="size-full object-cover" /> : initials(profile.name)}</span>
-                    <span className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-700">{profile.name}</span><span className="block text-[11px] text-slate-400">{profile.id === activeId ? "当前使用中" : profile.model || "未配置"}</span></span>
+                <div key={profile.id} className={`relative flex items-center gap-2 rounded-xl p-2 transition ${editingId === profile.id ? "bg-[#edf6fb] ring-1 ring-sky-100" : "hover:bg-slate-50"}`}>
+                  <button type="button" onClick={() => setEditingId(profile.id)} className="min-h-11 min-w-0 flex-1 rounded-lg px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400">
+                    <span className="flex items-center gap-2"><span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-[#dceefa] text-xs font-bold text-[#3f7698]">{profile.avatar ? <img src={profile.avatar} alt="" className="size-full object-cover" /> : initials(profile.name)}</span><span className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-700">{profile.name}</span><span className="block text-[11px] text-slate-400">{editingId === profile.id ? "正在编辑" : profile.id === activeId ? "当前使用中" : profile.model || "未配置"}</span></span></span>
                   </button>
-                  <button onClick={() => useAI(profile.id)} className={`rounded-lg px-2 py-1 text-[11px] font-semibold ${profile.id === activeId ? "bg-white text-[#39745c] shadow-sm" : "text-slate-400 hover:bg-white"}`}>{profile.id === activeId ? "正在用" : "使用"}</button>
+                  <button type="button" onClick={() => useAI(profile.id)} className={`min-h-9 rounded-lg px-2 py-1 text-[11px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${profile.id === activeId ? "bg-white text-[#39745c] shadow-sm" : "text-slate-500 hover:bg-white"}`} aria-label={`使用 AI ${profile.name}`}>{profile.id === activeId ? "正在用" : "使用"}</button>
                 </div>
               ))}
             </div>
@@ -456,6 +468,14 @@ export default function AIManager() {
                   </div>
                   {mediaTestState[capability] && <p aria-live="polite" role={mediaTestState[capability]!.kind === "error" ? "alert" : undefined} className={`mt-1.5 rounded-lg px-3 py-2 text-xs leading-5 ${mediaTestState[capability]!.kind === "loading" ? "bg-sky-50 text-sky-700" : mediaTestState[capability]!.kind === "success" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{mediaTestState[capability]!.kind === "loading" && <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />}{mediaTestState[capability]!.text}</p>}
                   <div className="mt-2 grid gap-2 sm:grid-cols-2"><Input value={form.media?.[capability]?.endpoint ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], endpoint: event.target.value } } }))} placeholder="可选：完整 HTTPS 端点" className="h-9 rounded-lg border-slate-200 bg-slate-50 text-xs" /><Input value={form.media?.[capability]?.model ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], model: event.target.value } } }))} placeholder="可选：专用模型名" className="h-9 rounded-lg border-slate-200 bg-slate-50 text-xs" /></div>{capability === "speech" && <Input value={form.media?.speech?.voice ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, speech: { ...previous.media?.speech, voice: event.target.value } } }))} placeholder="可选：语音名，默认 alloy" className="mt-2 h-9 rounded-lg border-slate-200 bg-slate-50 text-xs" />}<details className="mt-2 rounded-lg bg-slate-50 p-2.5"><summary className="cursor-pointer text-xs font-semibold text-slate-500">高级兼容参数（自定义音乐/视频服务才需要）</summary><div className="mt-2 grid gap-2 sm:grid-cols-2"><select value={form.media?.[capability]?.requestFormat ?? (capability === "video" ? "form" : "json")} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], requestFormat: event.target.value as "json" | "form" } } }))} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-600"><option value="json">JSON 请求体</option><option value="form">表单请求体</option></select><Input value={form.media?.[capability]?.resultPath ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], resultPath: event.target.value } } }))} placeholder="可选：结果字段，如 data.0.url" className="h-9 rounded-lg border-slate-200 bg-white text-xs" /></div><div className="mt-2 grid gap-2 sm:grid-cols-2"><Input value={form.media?.[capability]?.resultMimeType ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], resultMimeType: event.target.value } } }))} placeholder="可选：裸 Base64 的 MIME，如 audio/mpeg" className="h-9 rounded-lg border-slate-200 bg-white text-xs" /><span className="self-center text-[10px] leading-4 text-slate-400">二进制或结果链接会自动读取 MIME，无需填写。</span></div><Textarea value={form.media?.[capability]?.requestTemplate ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], requestTemplate: event.target.value } } }))} placeholder={'可选 JSON，如 {"model":"{{model}}","prompt":"{{prompt}}"}'} className="mt-2 min-h-16 rounded-lg border-slate-200 bg-white text-xs" />{(capability === "music" || capability === "video") && <div className="mt-2 grid gap-2 sm:grid-cols-2"><Input value={form.media?.[capability]?.pollEndpoint ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], pollEndpoint: event.target.value } } }))} placeholder="可选：轮询端点，使用 {{id}}" className="h-9 rounded-lg border-slate-200 bg-white text-xs" /><Input value={form.media?.[capability]?.contentEndpoint ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, [capability]: { ...previous.media?.[capability], contentEndpoint: event.target.value } } }))} placeholder="可选：内容端点，使用 {{id}}" className="h-9 rounded-lg border-slate-200 bg-white text-xs" /></div>}{capability === "video" && <Input value={form.media?.video?.cancelEndpoint ?? ""} onChange={event => setForm(previous => ({ ...previous, media: { ...previous.media, video: { ...previous.media?.video, cancelEndpoint: event.target.value } } }))} placeholder="可选：取消端点，使用 {{id}}" className="mt-2 h-9 rounded-lg border-slate-200 bg-white text-xs" />}</details></div>)}</div>
+                <section className="mt-3 rounded-xl border border-sky-100 bg-sky-50/65 p-3" aria-label="多模态端点跨域自检">
+                  <div className="flex items-start gap-2"><Wifi className="mt-0.5 size-4 shrink-0 text-sky-700" /><div><p className="text-xs font-bold text-sky-900">多模态跨域自检</p><p className="mt-0.5 text-[11px] leading-5 text-sky-800">分别模拟浏览器携带授权头的空请求；不发送模型、提示词或你的 API Key，不会创建图片、语音、音乐或视频任务。任意可读取 HTTP 响应均表示 CORS 链路已通。</p></div></div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">{(["image", "speech", "music", "video"] as const).map(capability => {
+                    const feedback = mediaCorsFeedback[capability];
+                    const label = ({ image: "图片", speech: "语音", music: "音乐", video: "视频" } as const)[capability];
+                    return <div key={capability} className="rounded-lg border border-white/80 bg-white/80 p-2"><Button type="button" onClick={() => void testMediaCors(capability)} disabled={mediaCorsChecking !== null} variant="outline" size="sm" className="h-8 w-full rounded-lg border-sky-200 bg-white text-xs text-sky-800 hover:bg-sky-50 disabled:opacity-70">{mediaCorsChecking === capability ? <><Loader2 className="mr-1.5 size-3 animate-spin" />检测{label}中</> : <><Wifi className="mr-1.5 size-3" />检测{label} CORS</>}</Button>{feedback && <p aria-live="polite" className={`mt-1.5 text-[10px] leading-4 ${feedback.ok ? "text-emerald-700" : "text-rose-700"}`}>{feedback.ok ? `HTTP ${feedback.status} · ${feedback.message}` : feedback.message}</p>}</div>;
+                  })}</div>
+                </section>
               </details>
 
               <div className="space-y-2">

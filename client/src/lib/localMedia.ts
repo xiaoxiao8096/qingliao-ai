@@ -23,6 +23,10 @@ export type MediaGenerationOptions = {
   onVideoTaskUpdate?: (update: VideoTaskUpdate) => void;
 };
 
+export type MediaCorsCheck =
+  | { ok: true; endpoint: string; status: number; message: string }
+  | { ok: false; endpoint: string; message: string };
+
 export function defaultMediaEndpoint(baseUrl: string, capability: EndpointCapability) {
   const normalized = baseUrl.trim().replace(/\/$/, "").replace(/\/chat\/completions$/, "");
   if (!normalized) return "";
@@ -71,6 +75,32 @@ export function mediaNetworkFailureMessage(profile: LocalAIProfile, capability: 
     return "GMI Cloud Music 3.0 官方 console 端点未开放可携带 Authorization 的浏览器跨域调用；纯静态轻聊无法直连。请改填你自己部署且允许 CORS 的 HTTPS 代理端点，勿使用公共 CORS 代理或在页面暴露 API Key。";
   }
   return "浏览器无法访问该多模态端点。请检查 HTTPS、网络以及上游 CORS 配置。";
+}
+
+/**
+ * 通过一个不含模型、提示词和真实 API Key 的空 JSON 请求触发浏览器预检。
+ * 任何可读取的 HTTP 状态均表示 CORS 链路已通；这不是生成任务，也不验证账户权限。
+ */
+export async function checkMediaCors(profile: LocalAIProfile, capability: EndpointCapability, request: typeof fetch = fetch): Promise<MediaCorsCheck> {
+  const endpoint = mediaEndpointFor(profile, capability);
+  if (!endpoint) return { ok: false, endpoint, message: "请先填写该能力的 HTTPS 端点，或填写可推导默认端点的 API Base URL。" };
+  try {
+    const response = await request(endpoint, {
+      method: "POST",
+      mode: "cors",
+      credentials: "omit",
+      headers: { "content-type": JSON_MEDIA, authorization: "Bearer qingliao-cors-probe" },
+      body: "{}",
+    });
+    const authorizationHint = response.status === 401 || response.status === 403
+      ? "上游已返回授权错误，说明浏览器跨域链路可用；此检测未使用你的 API Key。"
+      : response.status >= 200 && response.status < 300
+        ? "上游已可从浏览器读取；此检测未提交模型、提示词或真实 API Key。"
+        : `上游返回 HTTP ${response.status}，但浏览器已可读取响应。请再用真实配置测试模型权限与参数。`;
+    return { ok: true, endpoint, status: response.status, message: authorizationHint };
+  } catch {
+    return { ok: false, endpoint, message: mediaNetworkFailureMessage(profile, capability, endpoint) };
+  }
 }
 
 function interpolateTemplate(value: unknown, values: Record<string, string>): unknown {

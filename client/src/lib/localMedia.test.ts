@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMediaRequestPayload, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, mediaApiKeyFor, mediaNetworkFailureMessage, videoTaskProgress } from "./localMedia";
+import { buildMediaRequestPayload, checkMediaCors, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, mediaApiKeyFor, mediaNetworkFailureMessage, videoTaskProgress } from "./localMedia";
 
 describe("local media endpoint helpers", () => {
   it("derives OpenAI-compatible media paths from a text API base URL", () => {
@@ -32,6 +32,26 @@ describe("local media endpoint helpers", () => {
     expect(mediaApiKeyFor(profile, "video")).toBe("key-chat-b");
     expect(mediaApiKeyFor({ ...profile, apiKey: "" }, "image")).toBe("key-image-a");
     expect(mediaApiKeyFor({ ...profile, apiKey: "" }, "music")).toBe("");
+  });
+
+  it("checks every media endpoint through a credential-free browser CORS probe without creating content", async () => {
+    const profile = { baseUrl: "https://api.example.com/v1", apiKey: "private-key", model: "fallback", media: { image: { endpoint: "https://media.example.com/images" } } } as any;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const result = await checkMediaCors(profile, "image", async (url, init) => {
+      requests.push({ url: String(url), init });
+      return new Response("unauthorized", { status: 401 });
+    });
+    expect(result).toMatchObject({ ok: true, endpoint: "https://media.example.com/images", status: 401 });
+    expect(result.message).toContain("未使用你的 API Key");
+    expect(requests[0]).toMatchObject({ url: "https://media.example.com/images", init: { method: "POST", body: "{}", credentials: "omit" } });
+    expect((requests[0].init?.headers as Record<string, string>).authorization).toBe("Bearer qingliao-cors-probe");
+  });
+
+  it("reports a capability-specific CORS boundary when the browser cannot reach a media endpoint", async () => {
+    const profile = { baseUrl: "https://api.example.com/v1", apiKey: "test", model: "fallback", media: { music: { endpoint: "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey/requests", providerTemplateId: "music-gmi-minimax-3" } } } as any;
+    const result = await checkMediaCors(profile, "music", async () => { throw new TypeError("Failed to fetch"); });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("纯静态轻聊无法直连");
   });
 
   it("maps each creation capability to a clear asset target", () => {
