@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { handleMediaProxy } from "../server/mediaProxy";
+import { handleMediaProxy } from "../server/mediaProxy.js";
 
 export const config = {
   api: { bodyParser: false },
