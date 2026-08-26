@@ -180,6 +180,8 @@ export type LocalAIProfile = LocalModelSettings & {
     resultPath?: string;
     /** 当服务以裸 Base64 返回时，用于归档与预览的 MIME，例如 audio/mpeg。 */
     resultMimeType?: string;
+    /** 自定义结果字符串编码；留空时按 Base64 处理。 */
+    resultEncoding?: "base64" | "hex";
     /** 异步任务状态端点，可使用 {{id}} 占位符。 */
     pollEndpoint?: string;
     /** 异步任务完成后的二进制下载端点，可使用 {{id}} 占位符。 */

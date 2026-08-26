@@ -27,6 +27,14 @@ export type MediaCorsCheck =
   | { ok: true; endpoint: string; status: number; message: string }
   | { ok: false; endpoint: string; message: string };
 
+export type VideoWaitEstimate = { minMinutes: number; maxMinutes: number; label: string; note: string };
+
+export function videoWaitEstimate(profile: LocalAIProfile): VideoWaitEstimate {
+  const templateId = profile.media?.video?.providerTemplateId;
+  if (templateId === "video-minimax-official") return { minMinutes: 1, maxMinutes: 5, label: "预计约 1–5 分钟", note: "实际取决于队列、片长和服务商负载；页面需保持打开。" };
+  return { minMinutes: 1, maxMinutes: 5, label: "预计约 1–5 分钟", note: "这是等待参考，不是服务商承诺；排队较长时可继续等待或停止本机轮询。" };
+}
+
 export function defaultMediaEndpoint(baseUrl: string, capability: EndpointCapability) {
   const normalized = baseUrl.trim().replace(/\/$/, "").replace(/\/chat\/completions$/, "");
   if (!normalized) return "";
@@ -150,10 +158,18 @@ function decodeBase64(value: string, type = "application/octet-stream") {
   return new Blob([bytes], { type: value.startsWith("data:") ? value.slice(5, value.indexOf(";")) : type });
 }
 
+function decodeHex(value: string, type = "application/octet-stream") {
+  const clean = value.replace(/\s/g, "");
+  if (!/^(?:[0-9a-fA-F]{2})+$/.test(clean)) throw new Error("not hexadecimal");
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let index = 0; index < clean.length; index += 2) bytes[index / 2] = Number.parseInt(clean.slice(index, index + 2), 16);
+  return new Blob([bytes], { type });
+}
+
 function resultValue(payload: unknown, config: MediaConfig) {
   const custom = valueAtPath(payload, config.resultPath);
   if (typeof custom === "string" && custom.trim()) return custom.trim();
-  return firstString(payload, ["data.0.b64_json", "data.0.url", "data.0.b64", "url", "output_url", "output.url", "result.url", "video_url", "content_url", "audio_url"]);
+  return firstString(payload, ["data.0.b64_json", "data.0.url", "data.0.b64", "url", "output_url", "output.url", "output.video_url", "result.url", "video_url", "content.url", "content_url", "audio_url"]);
 }
 
 async function blobFromPayload(payload: unknown, config: MediaConfig, capability: EndpointCapability): Promise<Blob | null> {
@@ -165,7 +181,9 @@ async function blobFromPayload(payload: unknown, config: MediaConfig, capability
     return assetResponse.blob();
   }
   const defaultMime = capability === "image" ? "image/png" : capability === "speech" ? "audio/mpeg" : capability === "music" ? "audio/mpeg" : "video/mp4";
-  try { return decodeBase64(value, config.resultMimeType?.trim() || defaultMime); } catch { throw new Error("生成结果不是可下载链接或 Base64 文件内容。请在高级配置中填写正确的结果字段路径。"); }
+  try {
+    return config.resultEncoding === "hex" ? decodeHex(value, config.resultMimeType?.trim() || defaultMime) : decodeBase64(value, config.resultMimeType?.trim() || defaultMime);
+  } catch { throw new Error("生成结果不是可下载链接、Base64 或模板声明的十六进制文件内容。请检查结果字段与编码设置。"); }
 }
 
 async function responseToBlob(response: Response, config: MediaConfig, capability: EndpointCapability): Promise<Blob> {
@@ -189,15 +207,15 @@ function renderEndpoint(template: string, id: string) {
 }
 
 function statusOf(payload: unknown) {
-  return firstString(payload, ["status", "data.status", "result.status"]).toLocaleLowerCase();
+  return firstString(payload, ["status", "data.status", "result.status", "output.task_status", "output.status"]).toLocaleLowerCase();
 }
 
 function idOf(payload: unknown) {
-  return firstString(payload, ["id", "data.id", "job_id", "data.job_id", "task_id", "data.task_id", "request_id", "data.request_id"]);
+  return firstString(payload, ["id", "data.id", "job_id", "data.job_id", "task_id", "data.task_id", "output.task_id", "request_id", "data.request_id"]);
 }
 
 function isDone(status: string) { return ["completed", "succeeded", "success", "done"].includes(status); }
-function isFailed(status: string) { return ["failed", "error", "cancelled", "canceled", "expired"].includes(status); }
+function isFailed(status: string) { return ["failed", "fail", "error", "cancelled", "canceled", "expired"].includes(status); }
 function sleep(milliseconds: number) { return new Promise(resolve => window.setTimeout(resolve, milliseconds)); }
 
 export function videoTaskProgress(payload: unknown, status: string, attempt: number) {

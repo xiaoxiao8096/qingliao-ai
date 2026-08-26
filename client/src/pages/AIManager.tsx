@@ -23,6 +23,7 @@ import {
 } from "@/lib/localProfiles";
 import { applyMediaProviderTemplate, mediaProviderTemplatesFor } from "@/lib/mediaProviderTemplates";
 import { checkMediaCors, mediaApiKeyFor, testMediaCapability, type EndpointCapability, type MediaCorsCheck } from "@/lib/localMedia";
+import { appendCorsHistory, clearCorsHistory, getCorsHistory, type CorsHistoryItem } from "@/lib/localCorsHistory";
 import {
   ArrowLeft,
   BookmarkPlus,
@@ -140,6 +141,7 @@ export default function AIManager() {
   const [showMediaKey, setShowMediaKey] = useState<Record<EndpointCapability, boolean>>({ image: false, speech: false, music: false, video: false });
   const [mediaCorsChecking, setMediaCorsChecking] = useState<EndpointCapability | null>(null);
   const [mediaCorsFeedback, setMediaCorsFeedback] = useState<Partial<Record<EndpointCapability, MediaCorsCheck>>>({});
+  const [corsHistory, setCorsHistory] = useState<CorsHistoryItem[]>(() => getCorsHistory());
   const [presets, setPresets] = useState<AppearancePreset[]>(() => getAppearancePresets());
   const [presetName, setPresetName] = useState("");
   const avatarInput = useRef<HTMLInputElement>(null);
@@ -390,6 +392,7 @@ export default function AIManager() {
     const result = await checkMediaCors(form, capability);
     setMediaCorsChecking(null);
     setMediaCorsFeedback(previous => ({ ...previous, [capability]: result }));
+    setCorsHistory(appendCorsHistory(capability, result));
     if (result.ok) toast.success(`${({ image: "图片", speech: "语音", music: "音乐", video: "视频" }[capability])}端点可跨域读取。`, { description: `HTTP ${result.status} · 未发送生成任务` });
     else toast.error(result.message, { description: result.endpoint || "请先填写端点" });
   }
@@ -475,6 +478,7 @@ export default function AIManager() {
                     const label = ({ image: "图片", speech: "语音", music: "音乐", video: "视频" } as const)[capability];
                     return <div key={capability} className="rounded-lg border border-white/80 bg-white/80 p-2"><Button type="button" onClick={() => void testMediaCors(capability)} disabled={mediaCorsChecking !== null} variant="outline" size="sm" className="h-8 w-full rounded-lg border-sky-200 bg-white text-xs text-sky-800 hover:bg-sky-50 disabled:opacity-70">{mediaCorsChecking === capability ? <><Loader2 className="mr-1.5 size-3 animate-spin" />检测{label}中</> : <><Wifi className="mr-1.5 size-3" />检测{label} CORS</>}</Button>{feedback && <p aria-live="polite" className={`mt-1.5 text-[10px] leading-4 ${feedback.ok ? "text-emerald-700" : "text-rose-700"}`}>{feedback.ok ? `HTTP ${feedback.status} · ${feedback.message}` : feedback.message}</p>}</div>;
                   })}</div>
+                  {corsHistory.length > 0 && <div className="mt-3 border-t border-sky-100 pt-3"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-bold text-sky-900">本机检测历史</p><button type="button" onClick={() => { clearCorsHistory(); setCorsHistory([]); }} className="text-[11px] font-semibold text-sky-700 hover:underline">清空历史</button></div><p className="mt-0.5 text-[10px] leading-4 text-sky-700">仅保留端点域名与路径、结果和时间；不保存 API Key、提示词或响应正文。</p><div className="mt-2 space-y-1.5">{corsHistory.slice(0, 6).map(item => <div key={item.id} className="rounded-lg border border-white/80 bg-white/75 px-2.5 py-2 text-[10px] leading-4"><div className="flex items-center justify-between gap-2"><span className={`font-bold ${item.ok ? "text-emerald-700" : "text-rose-700"}`}>{({ image: "图片", speech: "语音", music: "音乐", video: "视频" } as const)[item.capability]} · {item.ok ? `可读取${item.status ? ` HTTP ${item.status}` : ""}` : "不可读取"}</span><span className="shrink-0 text-slate-400">{new Date(item.checkedAt).toLocaleString()}</span></div><p className="mt-0.5 truncate text-slate-500">{item.endpoint || "未填写端点"}</p></div>)}</div></div>}
                 </section>
               </details>
 

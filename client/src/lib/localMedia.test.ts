@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMediaRequestPayload, checkMediaCors, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, mediaApiKeyFor, mediaNetworkFailureMessage, videoTaskProgress } from "./localMedia";
+import { buildMediaRequestPayload, checkMediaCors, defaultMediaEndpoint, defaultMediaRequestFormat, capabilityLabel, generatedAssetKind, mediaApiKeyFor, mediaNetworkFailureMessage, videoTaskProgress, videoWaitEstimate } from "./localMedia";
 
 describe("local media endpoint helpers", () => {
   it("derives OpenAI-compatible media paths from a text API base URL", () => {
@@ -64,5 +64,10 @@ describe("local media endpoint helpers", () => {
     expect(videoTaskProgress({ data: { progress: 0.46 } }, "processing", 3)).toBe(46);
     expect(videoTaskProgress({}, "queued", 2)).toBeGreaterThanOrEqual(18);
     expect(videoTaskProgress({}, "completed", 8)).toBe(96);
+  });
+
+  it("provides a visible, non-binding wait estimate for asynchronous video tasks", () => {
+    const profile = { media: { video: { providerTemplateId: "video-minimax-official" } } } as any;
+    expect(videoWaitEstimate(profile)).toMatchObject({ minMinutes: 1, maxMinutes: 5, label: "预计约 1–5 分钟" });
   });
 });

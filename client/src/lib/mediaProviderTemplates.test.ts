@@ -18,4 +18,15 @@ describe("media provider templates", () => {
     const proxied = applyMediaProviderTemplate({ endpoint: "https://music-proxy.example.com/gmi", model: "minimax-music-3.0" }, template!);
     expect(proxied.endpoint).toBe("https://music-proxy.example.com/gmi");
   });
+
+  it("provides official defaults for OpenAI-compatible, SiliconFlow and MiniMax media services", () => {
+    const siliconImage = applyMediaProviderTemplate({}, mediaProviderTemplatesFor("image").find(item => item.id === "image-siliconflow-official")!);
+    const siliconSpeech = applyMediaProviderTemplate({}, mediaProviderTemplatesFor("speech").find(item => item.id === "speech-siliconflow-official")!);
+    const minimaxMusic = applyMediaProviderTemplate({}, mediaProviderTemplatesFor("music").find(item => item.id === "music-minimax-official")!);
+    const minimaxVideo = applyMediaProviderTemplate({}, mediaProviderTemplatesFor("video").find(item => item.id === "video-minimax-official")!);
+    expect(siliconImage).toMatchObject({ endpoint: "https://api.siliconflow.cn/v1/images/generations", model: "black-forest-labs/FLUX.1-schnell" });
+    expect(siliconSpeech).toMatchObject({ endpoint: "https://api.siliconflow.cn/v1/audio/speech", model: "fishaudio/fish-speech-1.5", voice: "fishaudio/fish-speech-1.5:alex" });
+    expect(minimaxMusic).toMatchObject({ endpoint: "https://api.minimax.io/v1/music_generation", model: "music-3.0", resultPath: "data.audio", resultEncoding: "hex" });
+    expect(minimaxVideo).toMatchObject({ endpoint: "https://api.minimax.io/v1/video_generation", model: "MiniMax-Hailuo-2.3", pollEndpoint: "https://api.minimax.io/v1/query/video_generation?task_id={{id}}", resultPath: "content.url" });
+  });
 });
