@@ -6,7 +6,7 @@
   "regions": ["hkg1"],
   "functions": {
     "api/media-proxy.ts": {
-      "maxDuration": 300,
+      "maxDuration": 60,
       "supportsCancellation": true
     }
   }
