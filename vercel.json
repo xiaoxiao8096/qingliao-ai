@@ -3,7 +3,7 @@
   "framework": "vite",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "regions": ["hkg1"],
+  "regions": ["sin1"],
   "functions": {
     "api/media-proxy.ts": {
       "maxDuration": 60,
